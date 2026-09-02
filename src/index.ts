@@ -14,10 +14,12 @@
 
 import { Hono } from 'hono';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { driveUpload, driveEnsureFolder, driveDownload } from './drive';
+import { putDocument, getDocument, objectKey, documentFileName } from './storage';
+import { buildWorkbook, buildDocumentArchive, exportFileName } from './export';
 
 export interface Env {
   DB: D1Database;
+  DOCS: R2Bucket;
   OCR: Queue<OcrMessage>;
   ASSETS: Fetcher;
   ACCESS_TEAM_DOMAIN: string;
@@ -25,15 +27,13 @@ export interface Env {
   TIMEZONE: string;
   APP_TITLE: string;
   GEMINI_API_KEY: string;
-  GOOGLE_CLIENT_ID: string;
-  GOOGLE_CLIENT_SECRET: string;
-  GOOGLE_REFRESH_TOKEN: string;
+  DOC_ENCRYPTION_KEY: string;
 }
 
 export interface OcrMessage {
   jobId: string;
   jobFileId: string;
-  driveFileId: string;
+  r2Key: string;
   mimeType: string;
 }
 
@@ -128,12 +128,12 @@ app.use('/api/*', async (c, next) => {
 
 app.get('/api/me', async (c) => {
   const caller = c.get('caller');
-  const connected = await setting(c.env, 'google_connected');
+  const connected = await setting(c.env, 'storage_backend');
   return c.json({
     email: caller.email,
     role: caller.role,
     title: c.env.APP_TITLE,
-    googleConnected: connected === '1',
+    storage: connected || 'r2',
     today: today(),
   });
 });
@@ -267,7 +267,7 @@ app.post('/api/uploads', async (c) => {
 });
 
 /**
- * Takes one file, puts it in Drive, queues it for reading, returns.
+ * Takes one file, encrypts it into R2, queues it for reading, returns.
  * The user is free to upload the next file immediately — no lock, no waiting.
  */
 app.post('/api/uploads/:jobId/file', async (c) => {
@@ -283,8 +283,9 @@ app.post('/api/uploads/:jobId/file', async (c) => {
   if (!['draft', 'error'].includes(job.status)) throw new HttpError(409, 'This upload is already being processed.');
 
   const form = await c.req.formData();
-  const file = form.get('file');
-  if (!(file instanceof File)) throw new HttpError(400, 'No file received.');
+  const file = form.get('file') as unknown as
+    { name: string; type: string; size: number; arrayBuffer(): Promise<ArrayBuffer> } | null;
+  if (!file || typeof file.arrayBuffer !== 'function') throw new HttpError(400, 'No file received.');
   if (file.size > 30 * 1024 * 1024) throw new HttpError(413, 'Each file must be 30 MB or smaller.');
 
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -299,28 +300,28 @@ app.post('/api/uploads/:jobId/file', async (c) => {
     return c.json({ duplicate: true, match: dupe }, 409);
   }
 
-  const folderId = await driveEnsureFolder(c.env, job.person_id, 'Pending Review');
-  const drive = await driveUpload(c.env, folderId, file.name, file.type, bytes);
-
   const jobFileId = crypto.randomUUID();
+  const r2Key = objectKey(job.person_id, jobFileId);
+  await putDocument(c.env, r2Key, bytes, file.type);
+
   const { count } = await c.env.DB.prepare(
     `SELECT COUNT(*) AS count FROM job_files WHERE job_id = ?`
   ).bind(jobId).first<{ count: number }>() ?? { count: 0 };
 
   await c.env.DB.prepare(
     `INSERT INTO job_files (job_file_id, job_id, file_index, file_name, mime_type,
-                            bytes, drive_file_id, content_sha256, ai_status)
+                            bytes, r2_key, content_sha256, ai_status)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`
-  ).bind(jobFileId, jobId, count + 1, file.name, file.type, file.size, drive.id, hash).run();
+  ).bind(jobFileId, jobId, count + 1, file.name, file.type, file.size, r2Key, hash).run();
 
   // Hand off to the background reader and return straight away.
-  await c.env.OCR.send({ jobId, jobFileId, driveFileId: drive.id, mimeType: file.type });
+  await c.env.OCR.send({ jobId, jobFileId, r2Key, mimeType: file.type });
   await c.env.DB.prepare(
     `UPDATE jobs SET status='queued', message='Reading in the background…',
             updated_at=datetime('now') WHERE job_id = ?`
   ).bind(jobId).run();
 
-  return c.json({ jobFileId, name: file.name, driveUrl: drive.webViewLink, queued: true });
+  return c.json({ jobFileId, name: file.name, queued: true });
 });
 
 /** The app polls this to show progress. Cheap, indexed, no locks. */
@@ -333,6 +334,107 @@ app.get('/api/uploads/:jobId', async (c) => {
     `SELECT job_file_id, file_name, ai_status, last_error FROM job_files WHERE job_id = ? ORDER BY file_index`
   ).bind(jobId).all();
   return c.json({ ...job, extraction: job.extraction ? JSON.parse(job.extraction) : null, files });
+});
+
+
+/* ------------------------------------------------------------------ */
+/* 3b. People                                                          */
+/* ------------------------------------------------------------------ */
+
+app.post('/api/people', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role !== 'owner') throw new HttpError(403, 'Only the owner can add people.');
+
+  const { name } = await c.req.json<{ name: string }>();
+  const clean = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!clean) throw new HttpError(400, 'Enter a name.');
+
+  const exists = await c.env.DB.prepare(
+    `SELECT 1 FROM people WHERE lower(name) = lower(?)`
+  ).bind(clean).first();
+  if (exists) throw new HttpError(409, `${clean} is already in the list.`);
+
+  const personId = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO people (person_id, name, sort_order) VALUES (?, ?, (SELECT COUNT(*) FROM people))`
+    ).bind(personId, clean),
+    c.env.DB.prepare(`INSERT INTO profiles (person_id) VALUES (?)`).bind(personId),
+    c.env.DB.prepare(
+      `INSERT INTO audit_log (actor, action, ref_id, detail) VALUES (?, 'person_added', ?, ?)`
+    ).bind(caller.email, personId, clean),
+  ]);
+
+  return c.json({ personId, name: clean });
+});
+
+/* ------------------------------------------------------------------ */
+/* 3c. Exports — the "you are not locked in" guarantee                 */
+/* ------------------------------------------------------------------ */
+
+/** Everything as a multi-sheet workbook. Built fresh, never stored. */
+app.get('/api/export/workbook', async (c) => {
+  const caller = c.get('caller');
+  const bytes = await buildWorkbook(c.env, caller.personIds);
+  const name = exportFileName('xlsx', caller.personIds === 'all' ? 'family' : 'selected');
+
+  c.executionCtx.waitUntil(c.env.DB.prepare(
+    `INSERT INTO audit_log (actor, action, detail) VALUES (?, 'export_workbook', ?)`
+  ).bind(caller.email, name).run());
+
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${name}"`,
+      'Cache-Control': 'no-store',
+    },
+  });
+});
+
+/** The original scans, foldered by person and year, decrypted on the way out. */
+app.get('/api/export/documents', async (c) => {
+  const caller = c.get('caller');
+  const { zip, included, skipped, total } = await buildDocumentArchive(c.env, caller.personIds);
+  const name = exportFileName('zip', caller.personIds === 'all' ? 'family' : 'selected');
+
+  c.executionCtx.waitUntil(c.env.DB.prepare(
+    `INSERT INTO audit_log (actor, action, detail) VALUES (?, 'export_documents', ?)`
+  ).bind(caller.email, `${included} of ${total} documents, ${skipped} unreadable`).run());
+
+  return new Response(zip, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${name}"`,
+      'X-Documents-Included': String(included),
+      'X-Documents-Total': String(total),
+      'Cache-Control': 'no-store',
+    },
+  });
+});
+
+/** One document, streamed through the Worker so R2 is never exposed directly. */
+app.get('/api/documents/:documentId/file', async (c) => {
+  const caller = c.get('caller');
+  const doc = await c.env.DB.prepare(
+    `SELECT d.*, p.name person FROM documents d JOIN people p USING (person_id)
+      WHERE d.document_id = ? AND d.deleted = 0`
+  ).bind(c.req.param('documentId')).first<any>();
+  if (!doc) throw new HttpError(404, 'Document not found.');
+  requirePerson(caller, doc.person_id);
+
+  const bytes = await getDocument(c.env, doc.r2_key);
+  const name = documentFileName({
+    date: doc.document_date, person: doc.person, recordType: doc.document_type,
+    provider: doc.provider, documentId: doc.document_id, originalName: doc.file_name,
+  });
+
+  return new Response(bytes, {
+    headers: {
+      'Content-Type': doc.mime_type || 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${name}"`,
+      'Cache-Control': 'private, no-store',
+    },
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -385,7 +487,7 @@ export default {
   /** Background document reading. Retries and failures are handled by the queue. */
   async queue(batch: MessageBatch<OcrMessage>, env: Env) {
     for (const msg of batch.messages) {
-      // Implemented in Part 3: fetch from Drive, call Gemini with the v4 prompt
+      // Implemented next: fetch from R2, call Gemini with the v4 prompt
       // and schema, normalise, write extraction JSON, set job status to 'review'.
       console.log('OCR job queued', msg.body.jobFileId);
       msg.ack();
