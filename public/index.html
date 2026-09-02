@@ -2,166 +2,236 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Family Medical Records</title>
-<meta name="theme-color" content="#0f3d49">
+<meta name="theme-color" content="#0d3540">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.svg">
 <style>
 :root{
-  --ink:#16232a; --muted:#5d7179; --faint:#8fa3aa;
-  --line:#dde5e8; --paper:#f6f8f9; --card:#fff;
-  --deep:#0f3d49; --deep-2:#1a5f70;
-  --alert:#a8433a; --ok:#2f6f52; --warn:#8a6321;
+  --ink:#15222a; --muted:#5b7078; --faint:#93a6ad;
+  --line:#dfe7ea; --line-2:#eef3f4; --paper:#f4f7f8; --card:#fff;
+  --deep:#0d3540; --deep-2:#17545f; --tint:#e9f1f2;
+  --alert:#a8433a; --alert-tint:#fbeeec;
+  --ok:#2c6a4f; --warn:#8a6321;
+  --sh:0 1px 2px rgba(13,53,64,.05), 0 6px 18px rgba(13,53,64,.05);
+  --nav-h:60px;
 }
-*{box-sizing:border-box}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--paper);color:var(--ink);
-  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  padding-bottom:env(safe-area-inset-bottom)}
-.num{font-variant-numeric:tabular-nums}
-button{font:inherit}
+  font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  overscroll-behavior-y:none}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
 
-header{background:var(--deep);color:#fff;position:sticky;top:0;z-index:20}
-.hrow{display:flex;align-items:center;gap:12px;max-width:860px;margin:0 auto;
-  padding:calc(11px + env(safe-area-inset-top)) 18px 11px}
-.hrow h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}
-.hrow .who{margin-left:auto;font-size:12px;color:#9dc0c9;max-width:44%;
+/* ---------- top bar ---------- */
+header{background:var(--deep);color:#fff;position:sticky;top:0;z-index:30}
+.hrow{display:flex;align-items:center;gap:10px;max-width:900px;margin:0 auto;
+  padding:calc(10px + env(safe-area-inset-top)) 16px 10px}
+.back{background:none;border:0;color:#a9c9d1;font-size:22px;line-height:1;
+  padding:2px 8px 4px 0;margin-left:-4px}
+.htitle{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.people{display:flex;gap:7px;overflow-x:auto;max-width:860px;margin:0 auto;
-  padding:0 18px 11px;scrollbar-width:none}
+.hspace{margin-left:auto;display:flex;gap:8px;align-items:center}
+.avatar{width:31px;height:31px;border-radius:50%;background:#fff;color:var(--deep);
+  display:grid;place-items:center;font-size:13px;font-weight:700;border:0}
+
+.people{display:flex;gap:7px;overflow-x:auto;max-width:900px;margin:0 auto;
+  padding:0 16px 11px;scrollbar-width:none}
 .people::-webkit-scrollbar{display:none}
-.people button{flex:0 0 auto;border:1px solid rgba(255,255,255,.28);background:transparent;
-  color:#cfe2e7;padding:6px 14px;border-radius:999px;font-size:14px;cursor:pointer}
+.people button{flex:0 0 auto;border:1px solid rgba(255,255,255,.26);background:transparent;
+  color:#cadfe4;padding:6px 15px;border-radius:999px;font-size:14px;white-space:nowrap}
 .people button[aria-pressed=true]{background:#fff;border-color:#fff;color:var(--deep);font-weight:600}
-.people button.new{border-style:dashed;color:#9dc0c9}
+.people button.new{border-style:dashed}
 
-nav{background:var(--deep-2);overflow-x:auto;scrollbar-width:none}
-nav::-webkit-scrollbar{display:none}
-.navin{display:flex;gap:2px;max-width:860px;margin:0 auto;padding:0 12px}
-nav button{flex:0 0 auto;background:transparent;border:0;border-bottom:2px solid transparent;
-  color:#b8d3da;padding:11px 13px;font-size:14px;cursor:pointer}
-nav button[aria-selected=true]{color:#fff;border-bottom-color:#fff;font-weight:600}
+/* ---------- bottom nav on phones, top tabs on desktop ---------- */
+nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;
+  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);
+  box-shadow:0 -2px 14px rgba(13,53,64,.06)}
+.navin{display:flex;max-width:900px;margin:0 auto}
+nav button{flex:1;background:none;border:0;padding:8px 2px 7px;color:var(--faint);
+  font-size:10.5px;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:var(--nav-h)}
+nav button svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+nav button[aria-selected=true]{color:var(--deep);font-weight:600}
+nav .badge{position:absolute;transform:translate(11px,-4px);background:var(--alert);color:#fff;
+  border-radius:999px;font-size:9px;padding:1px 5px;font-weight:700}
+@media (min-width:760px){
+  nav{position:sticky;top:0;bottom:auto;border-top:0;background:var(--deep-2);box-shadow:none}
+  .navin{padding:0 10px}
+  nav button{flex:0 0 auto;flex-direction:row;gap:7px;font-size:14px;color:#b3d0d7;
+    padding:12px 15px;min-height:0;border-bottom:2px solid transparent}
+  nav button[aria-selected=true]{color:#fff;border-bottom-color:#fff}
+  nav button svg{width:17px;height:17px}
+}
 
-main{max-width:860px;margin:0 auto;padding:20px 18px 60px}
+main{max-width:900px;margin:0 auto;padding:18px 16px calc(var(--nav-h) + 40px)}
+@media (min-width:760px){ main{padding-bottom:50px} }
 
-/* A left rule marks a section, rather than wrapping everything in cards. */
-section{margin-bottom:26px}
-section > h2{font-size:13px;font-weight:600;color:var(--deep);margin:0 0 10px;
-  padding-left:10px;border-left:3px solid var(--deep)}
-.sub{color:var(--muted);font-size:13px;margin:-4px 0 12px 13px}
+/* ---------- structure ---------- */
+section{margin-bottom:24px}
+.h{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}
+.h h2{font-size:12px;font-weight:700;color:var(--deep);margin:0;
+  text-transform:uppercase;letter-spacing:.06em}
+.h .more{margin-left:auto;font-size:13px;color:var(--deep-2);background:none;border:0;padding:0}
+.sub{color:var(--muted);font-size:13px;margin:-4px 0 12px}
 
-.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:15px 17px}
-.rowlist{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.r{display:flex;gap:11px;align-items:baseline;padding:11px 15px;
-  border-top:1px solid var(--line);cursor:pointer;flex-wrap:wrap}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:15px 16px;box-shadow:var(--sh)}
+.list{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  overflow:hidden;box-shadow:var(--sh)}
+.r{display:flex;gap:11px;align-items:baseline;padding:12px 15px;
+  border-top:1px solid var(--line-2);flex-wrap:wrap}
 .r:first-child{border-top:0}
-.r:hover{background:#fbfdfd}
-.r .d{color:var(--muted);font-size:12.5px;flex:0 0 82px}
-.r .t{font-weight:600;font-size:14.5px;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.r .v{margin-left:auto;text-align:right;font-size:14px}
-.r .x{flex-basis:100%;color:var(--muted);font-size:12.5px;margin-top:2px;padding-left:93px}
-.r.bad .v{color:var(--alert);font-weight:600}
-.kind{font-size:10.5px;color:var(--faint);border:1px solid var(--line);
-  border-radius:4px;padding:1px 5px;flex:0 0 auto}
-@media (max-width:480px){ .r .x{padding-left:0} .r .d{flex-basis:72px} }
+.r[data-tap]:active{background:var(--tint)}
+.r .d{color:var(--muted);font-size:12.5px;flex:0 0 80px}
+.r .t{font-weight:600;font-size:14.5px;min-width:0;flex:1;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.r .v{margin-left:auto;text-align:right;font-size:14px;white-space:nowrap}
+.r .x{flex-basis:100%;color:var(--muted);font-size:12.5px;margin-top:1px;padding-left:91px}
+.r.bad{background:linear-gradient(90deg,var(--alert-tint) 0 3px,transparent 3px)}
+.r.bad .v{color:var(--alert);font-weight:700}
+.tag{font-size:10px;color:var(--faint);border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;flex:0 0 auto;text-transform:capitalize}
+@media (max-width:520px){ .r .x{padding-left:0} .r .d{flex:0 0 70px} }
 
-.empty{color:var(--muted);font-size:14px;padding:18px 15px;background:var(--card);
-  border:1px dashed var(--line);border-radius:10px}
+.empty{color:var(--muted);font-size:14px;padding:26px 18px;background:var(--card);
+  border:1px dashed var(--line);border-radius:12px;text-align:center}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:13px 14px;text-align:left;box-shadow:var(--sh)}
+.tile:active{background:var(--tint)}
+.tile b{display:block;font-size:14px;margin-bottom:3px;line-height:1.3}
+.tile span{font-size:12px;color:var(--muted)}
+.tile .flag{color:var(--alert);font-weight:600}
 
 .facts{width:100%;border-collapse:collapse;background:var(--card);
-  border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.facts td{padding:9px 13px;border-top:1px solid var(--line);font-size:14px;vertical-align:top}
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--sh)}
+.facts td{padding:10px 14px;border-top:1px solid var(--line-2);font-size:14px;vertical-align:top}
 .facts tr:first-child td{border-top:0}
-.facts .k{color:var(--muted);width:38%;font-size:13px}
+.facts .k{color:var(--muted);width:40%;font-size:13px}
 .facts .hi{color:var(--alert);font-weight:600}
 
-.field{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
-.field label{font-size:13px;color:var(--muted);flex:0 0 108px}
-input,textarea,select{border:1px solid var(--line);border-radius:7px;padding:9px 11px;
-  font:inherit;font-size:14px;color:var(--ink);background:#fff;flex:1;min-width:130px}
-textarea{min-height:66px;resize:vertical}
-input[type=file]{padding:7px;font-size:13px}
-.go{background:var(--deep);color:#fff;border:1px solid var(--deep);padding:9px 18px;
-  border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;flex:0 0 auto}
-.go:disabled{opacity:.5;cursor:default}
-.ghost{background:#fff;border:1px solid var(--line);color:var(--deep);padding:8px 14px;
-  border-radius:8px;cursor:pointer;font-size:13.5px;flex:0 0 auto}
-.ghost:hover{border-color:var(--deep)}
-.ghost.danger{color:var(--alert)}
-.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+/* ---------- controls ---------- */
+.field{display:flex;gap:10px;align-items:center;margin-bottom:11px;flex-wrap:wrap}
+.field label{font-size:13px;color:var(--muted);flex:0 0 104px}
+input,textarea,select{border:1px solid var(--line);border-radius:9px;padding:11px 12px;
+  font-size:16px;color:var(--ink);background:#fff;flex:1;min-width:120px;width:100%}
+@media (min-width:760px){ input,textarea,select{font-size:14px;padding:9px 11px} }
+input:focus,textarea:focus,select:focus{outline:2px solid var(--deep-2);outline-offset:-1px;border-color:transparent}
+textarea{min-height:70px;resize:vertical}
+input[type=file]{padding:9px;font-size:13px}
+.go{background:var(--deep);color:#fff;border:1px solid var(--deep);padding:11px 20px;
+  border-radius:9px;font-size:15px;font-weight:600;flex:0 0 auto;width:auto}
+.go:disabled{opacity:.5}
+.ghost{background:#fff;border:1px solid var(--line);color:var(--deep);padding:9px 15px;
+  border-radius:9px;font-size:13.5px;flex:0 0 auto;width:auto}
+.ghost.danger{color:var(--alert);border-color:#e6cdc9}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px;overflow-x:auto;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
 .chips button{background:#fff;border:1px solid var(--line);color:var(--muted);
-  padding:6px 13px;border-radius:999px;font-size:13px;cursor:pointer}
+  padding:7px 14px;border-radius:999px;font-size:13px;white-space:nowrap;flex:0 0 auto}
 .chips button[aria-pressed=true]{background:var(--deep);border-color:var(--deep);color:#fff}
-.status{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px}
-.status.err{color:var(--alert)}
-.status.ok{color:var(--ok)}
-.warnbox{background:#fdf6ec;border:1px solid #eddcc2;border-radius:8px;
-  padding:10px 13px;font-size:13px;color:var(--warn);margin-bottom:12px}
+.status{font-size:13px;color:var(--muted);margin-top:9px;min-height:18px}
+.status.err{color:var(--alert)} .status.ok{color:var(--ok)}
+.warnbox{background:#fdf6ec;border:1px solid #eddcc2;border-radius:9px;
+  padding:11px 13px;font-size:13px;color:var(--warn);margin-bottom:12px}
 
-/* The chart is the one place this app raises its voice. */
-.chart{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+/* ---------- grid of results ---------- */
+.grid{overflow:auto;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;box-shadow:var(--sh);-webkit-overflow-scrolling:touch}
+.grid table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px}
+.grid th,.grid td{padding:9px 12px;white-space:nowrap;border-bottom:1px solid var(--line-2)}
+.grid thead th{background:var(--tint);color:var(--deep);font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;z-index:2}
+.grid tbody th{text-align:left;font-weight:600;background:#fff;position:sticky;left:0;z-index:1;
+  border-right:1px solid var(--line);max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.grid thead th:first-child{left:0;z-index:3}
+.grid td{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.grid td.ab{color:var(--alert);font-weight:700;background:var(--alert-tint)}
+.grid td.ref{text-align:left;color:var(--faint);font-size:12px}
+.grid tbody tr:active th,.grid tbody tr:active td{background:var(--tint)}
+
+/* ---------- chart ---------- */
+.chart{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:14px;box-shadow:var(--sh)}
 .chart svg{width:100%;height:auto;display:block;overflow:visible}
-.band{fill:#2f6f52;opacity:.09}
-.gridline{stroke:var(--line);stroke-width:1}
+.band{fill:#2c6a4f;opacity:.10}
+.gridline{stroke:var(--line-2);stroke-width:1}
 .axis{fill:var(--faint);font-size:10px}
-.line{fill:none;stroke:var(--deep);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
-.dot{fill:var(--deep)}
-.dot.bad{fill:var(--alert)}
-.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
-.swatch{display:inline-block;width:11px;height:11px;border-radius:2px;
-  vertical-align:-1px;margin-right:5px}
+.line{fill:none;stroke:var(--deep);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.dot{fill:var(--deep)} .dot.bad{fill:var(--alert)}
+.legend{display:flex;gap:15px;font-size:12px;color:var(--muted);margin-top:11px;flex-wrap:wrap}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:5px}
 
-.veil{position:fixed;inset:0;background:rgba(16,35,42,.45);z-index:50;
-  display:flex;align-items:flex-end;justify-content:center}
-.modal{background:#fff;border-radius:14px 14px 0 0;padding:20px;width:100%;
-  max-width:560px;max-height:88vh;overflow:auto}
-.modal h3{margin:0 0 12px;font-size:16px}
-@media (min-width:600px){ .veil{align-items:center;padding:20px} .modal{border-radius:14px} }
+/* ---------- sheet ---------- */
+.veil{position:fixed;inset:0;background:rgba(13,34,42,.5);z-index:60;
+  display:flex;align-items:flex-end;justify-content:center;animation:fade .16s ease}
+.modal{background:#fff;border-radius:18px 18px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+  width:100%;max-width:560px;max-height:90vh;overflow:auto;animation:rise .2s cubic-bezier(.2,.8,.3,1)}
+.modal h3{margin:0 0 4px;font-size:17px}
+.grab{width:38px;height:4px;background:var(--line);border-radius:2px;margin:-8px auto 14px}
+@keyframes fade{from{opacity:0}} @keyframes rise{from{transform:translateY(18px)}}
+@media (min-width:600px){ .veil{align-items:center;padding:20px} .modal{border-radius:16px} .grab{display:none} }
+.spin{display:inline-block;width:15px;height:15px;border:2px solid var(--line);
+  border-top-color:var(--deep);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-3px}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 
 <header>
   <div class="hrow">
-    <h1>Family Medical Records</h1>
-    <span class="who" id="who"></span>
+    <button class="back" id="back" hidden>&#8592;</button>
+    <h1 class="htitle" id="htitle">Records</h1>
+    <div class="hspace"><button class="avatar" id="avatar" title="Signed in"></button></div>
   </div>
   <div class="people" id="people"></div>
 </header>
 
 <nav><div class="navin" id="nav"></div></nav>
-
-<main id="main"><div class="empty">Loading.</div></main>
-<div id="modalHost"></div>
+<main id="main"><div class="empty">Loading&hellip;</div></main>
+<div id="sheetHost"></div>
 
 <script>
 /* ==================================================================
-   Dates are stored ISO because that is what sorts correctly in SQL,
-   and shown dd-mmm-yyyy because 03-11-2026 is ambiguous in India.
-   fmt() is the only place that decision is made on this side.
+   Dates are stored ISO because that sorts correctly in SQL, and shown
+   dd-mmm-yyyy because 03-11-2026 is ambiguous in India. fmt() is the
+   only place that decision is made on this side.
+
+   Speed: every screen paints from cache first and refreshes behind you,
+   so moving between tabs is instant after the first visit.
    ================================================================== */
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
-  (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-
+  (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const fmt = (iso) => {
   const m = String(iso ?? '').slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? m[3] + '-' + MONTHS[+m[2]-1] + '-' + m[1] : (iso || '');
 };
+const fmtShort = (iso) => {
+  const m = String(iso ?? '').slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[3] + ' ' + MONTHS[+m[2]-1] + " '" + m[1].slice(2) : (iso || '');
+};
 const rel = (iso) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso ?? '').slice(0,10))) return '';
-  const d = Math.round((Date.parse(iso) - Date.parse(new Date().toISOString().slice(0,10))) / 864e5);
+  const d = Math.round((Date.parse(iso) - Date.parse(new Date().toISOString().slice(0,10)))/864e5);
   if (d === 0) return 'today';
   const n = Math.abs(d);
-  const u = n === 1 ? '1 day' : n < 31 ? n + ' days'
-    : n < 365 ? Math.round(n/30) + ' months' : (n/365).toFixed(1) + ' years';
-  return d > 0 ? 'in ' + u : u + ' ago';
+  const u = n === 1 ? '1 day' : n < 31 ? n+' days' : n < 365 ? Math.round(n/30)+' months' : (n/365).toFixed(1)+' years';
+  return d > 0 ? 'in '+u : u+' ago';
 };
 
-let me = null, people = [], current = null, tab = 'overview';
+/* ---------- data layer with a small cache ---------- */
 
+const cache = new Map();
 async function api(path, opts) {
   const res = await fetch(path, { credentials:'same-origin', ...opts });
   const ct = res.headers.get('Content-Type') || '';
@@ -169,418 +239,206 @@ async function api(path, opts) {
   if (!res.ok) throw new Error((body && body.error) || res.statusText);
   return body;
 }
-const post = (p,b) => api(p, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b) });
-const put  = (p,b) => api(p, { method:'PUT',  headers:{'Content-Type':'application/json'}, body:JSON.stringify(b) });
-const setStatus = (id, text, cls) => {
-  const el = $(id); if (!el) return;
-  el.className = 'status' + (cls ? ' ' + cls : ''); el.textContent = text;
+/** Returns cached data at once when present, and refreshes in the background. */
+async function cached(path, onFresh) {
+  const hit = cache.get(path);
+  const fresh = api(path).then((d) => { cache.set(path, d); return d; });
+  if (hit !== undefined) { fresh.then((d) => { if (onFresh) onFresh(d); }).catch(() => {}); return hit; }
+  return fresh;
+}
+const bust = (prefix) => [...cache.keys()].forEach((k) => { if (k.includes(prefix)) cache.delete(k); });
+const post = (p,b) => api(p, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
+const put  = (p,b) => api(p, {method:'PUT',  headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
+const setStatus = (id, text, cls) => { const e = $(id); if (e) { e.className = 'status'+(cls?' '+cls:''); e.textContent = text; } };
+
+let app = null, people = [], current = null;
+
+/* ---------- routing, so the phone back button works ---------- */
+
+const TABS = [
+  ['upload','Add','M12 5v14M5 12h14'],
+  ['overview','Overview','M4 12h5l2 6 3-13 2 7h4'],
+  ['tests','Tests','M4 19h16M7 19V9M12 19V5M17 19v-7'],
+  ['history','History','M4 6h16M4 12h16M4 18h10'],
+  ['more','More','M5 12h.01M12 12h.01M19 12h.01'],
+];
+
+function go(view, params, replace) {
+  const q = new URLSearchParams({ v: view, ...(params || {}) });
+  const url = '#' + q.toString();
+  if (replace) history.replaceState({}, '', url); else history.pushState({}, '', url);
+  route();
+}
+
+function currentRoute() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  return { view: q.get('v') || 'upload', p: Object.fromEntries(q.entries()) };
+}
+
+const VIEWS = {
+  upload:   { title:'Add a report',       tab:'upload',   fn:viewUpload },
+  overview: { title:'Overview',           tab:'overview', fn:viewOverview },
+  tests:    { title:'Tests',              tab:'tests',    fn:viewPanels },
+  panel:    { title:'Panel',              tab:'tests',    fn:viewPanel,  deep:true },
+  trend:    { title:'Trend',              tab:'tests',    fn:viewTrend,  deep:true },
+  history:  { title:'History',            tab:'history',  fn:viewHistory },
+  more:     { title:'More',               tab:'more',     fn:viewMore },
+  episodes: { title:'Episodes of care',   tab:'more',     fn:viewEpisodes, deep:true },
+  settings: { title:'Details & exports',  tab:'more',     fn:viewSettings, deep:true },
 };
 
-/* ---------- shell -------------------------------------------------- */
+function route() {
+  const { view, p } = currentRoute();
+  const def = VIEWS[view] || VIEWS.upload;
+  $('htitle').textContent = def.title;
+  $('back').hidden = !def.deep;
+  [...$('nav').children].forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === def.tab));
+  window.scrollTo(0, 0);
+  Promise.resolve(def.fn(p)).catch((err) => {
+    $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
+  });
+}
+window.addEventListener('popstate', route);
 
-const TABS = [['overview','Overview'],['timeline','History'],['trends','Trends'],
-  ['events','Episodes'],['add','Add'],['settings','Settings']];
+/* ---------- boot ---------- */
 
 async function boot() {
   try {
-    me = await api('/api/me');
-    $('who').textContent = me.email;
-    $('nav').innerHTML = TABS.map(([id,l]) =>
-      '<button data-tab="'+id+'" aria-selected="'+(id===tab)+'">'+l+'</button>').join('');
+    app = await api('/api/bootstrap');
+    people = app.people;
+    $('avatar').textContent = (app.email[0] || '?').toUpperCase();
+    $('avatar').onclick = () => sheet('<h3>Signed in</h3><div class="sub">' + esc(app.email) +
+      '</div><div class="field"><button class="ghost" id="closeSheet">Close</button></div>');
+
+    $('nav').innerHTML = TABS.map(([id,label,d]) =>
+      '<button data-tab="'+id+'" data-view="'+id+'">' +
+      '<svg viewBox="0 0 24 24"><path d="'+d+'"/></svg><span>'+label+'</span>' +
+      (id === 'upload' && app.pending ? '<i class="badge">'+app.pending+'</i>' : '') + '</button>').join('');
     $('nav').onclick = (e) => {
-      const b = e.target.closest('[data-tab]');
-      if (!b) return;
-      tab = b.dataset.tab;
-      [...$('nav').children].forEach(x => x.setAttribute('aria-selected', x.dataset.tab === tab));
-      render();
+      const b = e.target.closest('[data-view]');
+      if (b) go(b.dataset.view);
     };
-    await loadPeople();
+    $('back').onclick = () => history.back();
+
+    if (people.length) current = people[0].person_id;
+    paintPeople();
+    if (!location.hash) go('upload', null, true); else route();
   } catch (err) {
     $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
   }
 }
 
-async function loadPeople() {
-  people = await api('/api/people');
-  if (!current && people.length) current = people[0].person_id;
-  $('people').innerHTML = people.map(p =>
+function paintPeople() {
+  $('people').innerHTML = people.map((p) =>
     '<button data-id="'+p.person_id+'" aria-pressed="'+(p.person_id===current)+'">'+esc(p.name)+'</button>'
-  ).join('') + '<button class="new" data-add="1">+ Add person</button>';
+  ).join('') + '<button class="new" data-add="1">+ Person</button>';
   $('people').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.add) return addPerson();
     current = b.dataset.id;
-    [...$('people').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.id === current));
-    render();
+    [...$('people').children].forEach((x) => x.setAttribute('aria-pressed', x.dataset.id === current));
+    route();
   };
-  render();
 }
 
 async function addPerson() {
   const name = prompt('Name of the family member');
   if (!name) return;
-  try { const r = await post('/api/people', { name }); current = r.personId; await loadPeople(); }
-  catch (err) { alert(err.message); }
-}
-
-const person = () => people.find(p => p.person_id === current) || {};
-
-function render() {
-  if (!people.length) {
-    $('main').innerHTML = '<div class="empty">No one has been added yet. Use <b>+ Add person</b> above to start.</div>';
-    return;
-  }
-  const fn = { overview:viewOverview, timeline:viewTimeline, trends:viewTrends,
-               events:viewEvents, add:viewAdd, settings:viewSettings }[tab] || viewOverview;
-  fn().catch(err => { $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
-}
-
-/* ---------- overview ----------------------------------------------- */
-
-async function viewOverview() {
-  $('main').innerHTML = '<div class="empty">Loading.</div>';
-  const [snap, dash, profile] = await Promise.all([
-    api('/api/snapshot?person=' + current),
-    api('/api/dashboard'),
-    api('/api/profile?person=' + current),
-  ]);
-
-  const mine = (l) => l.filter(x => x.person === person().name);
-  const overdue = mine(dash.overdue), upcoming = mine(dash.upcoming);
-
-  const fu = (list, bad) => list.map(f =>
-    '<div class="r ' + (bad?'bad':'') + '"><span class="d num">' + fmt(f.due_date) + '</span>' +
-    '<span class="t">' + esc(f.instruction || f.type) + '</span>' +
-    '<span class="v">' + esc(rel(f.due_date)) + '</span>' +
-    '<button class="ghost" data-done="' + f.follow_up_id + '">Done</button></div>').join('');
-
-  const meds = snap.activeMedicines.map(m =>
-    '<div class="r"><span class="d num">' + fmt(m.prescribed_on) + '</span>' +
-    '<span class="t">' + esc([m.name, m.strength].filter(Boolean).join(' ')) + '</span>' +
-    '<span class="v">' + esc([m.dose, m.frequency].filter(Boolean).join(' ')) + '</span>' +
-    (m.end_date ? '' : '<span class="kind">no end date</span>') + '</div>').join('');
-
-  const abnormal = snap.abnormalTests.map(t =>
-    '<div class="r bad"><span class="d num">' + fmt(t.test_date) + '</span>' +
-    '<span class="t">' + esc(t.parameter) + '</span>' +
-    '<span class="v num">' + esc([t.result_text, t.unit].filter(Boolean).join(' ')) + '</span></div>').join('');
-
-  $('main').innerHTML =
-    '<section><h2>' + esc(person().name) + '</h2><table class="facts">' +
-      '<tr><td class="k">Blood group</td><td>' + esc(profile.blood_group || '\u2014') + '</td></tr>' +
-      '<tr><td class="k">Allergies</td><td class="' + (profile.allergies?'hi':'') + '">' + esc(profile.allergies || 'None recorded') + '</td></tr>' +
-      '<tr><td class="k">Ongoing conditions</td><td>' + esc(profile.chronic_conditions || 'None recorded') + '</td></tr>' +
-      '<tr><td class="k">Last seen</td><td>' + (snap.lastVisit ? esc(fmt(snap.lastVisit.event_date) + ' \u00b7 ' + (snap.lastVisit.record_type||'')) : '\u2014') + '</td></tr>' +
-    '</table></section>' +
-    (overdue.length ? '<section><h2>Overdue</h2><div class="rowlist">' + fu(overdue,true) + '</div></section>' : '') +
-    (upcoming.length ? '<section><h2>Coming up</h2><div class="rowlist">' + fu(upcoming,false) + '</div></section>' : '') +
-    (abnormal ? '<section><h2>Out of range</h2><div class="sub">The most recent value for each test that sits outside its range.</div><div class="rowlist">' + abnormal + '</div></section>' : '') +
-    (meds ? '<section><h2>Current medicines</h2><div class="rowlist">' + meds + '</div></section>' : '') +
-    '<section><h2>Doctor handout</h2><div class="sub">One page with conditions, medicines, latest results and open follow-ups.</div>' +
-      '<div class="field"><button class="ghost" id="openHandout">Open and print</button>' +
-      '<button class="ghost" id="shareHandout">Create a 24-hour link</button></div>' +
-      '<div class="status" id="hStatus"></div></section>';
-
-  $('main').onclick = async (e) => {
-    const d = e.target.closest('[data-done]');
-    if (!d) return;
-    await post('/api/records/followup/' + d.dataset.done + '/complete', {});
-    render();
-  };
-  $('openHandout').onclick = () => window.open('/api/handout?person=' + current, '_blank');
-  $('shareHandout').onclick = async () => {
-    try {
-      const r = await post('/api/handout/share', { person: current, hours: 24 });
-      await navigator.clipboard.writeText(r.url).catch(() => {});
-      setStatus('hStatus', 'Link copied, works for ' + r.hours + ' hours: ' + r.url, 'ok');
-    } catch (err) { setStatus('hStatus', err.message, 'err'); }
-  };
-}
-
-/* ---------- history ------------------------------------------------ */
-
-const KINDS = [['all','Everything'],['test','Tests'],['medicine','Medicines'],['record','Visits'],
-  ['document','Documents'],['diagnosis','Diagnoses'],['followup','Follow-ups'],['bill','Bills']];
-let kind = 'all', page = 0, query = '';
-
-async function viewTimeline() {
-  $('main').innerHTML =
-    '<section><div class="field"><input type="text" id="q" placeholder="Search this person\u2019s records" value="' + esc(query) + '"></div>' +
-    '<div class="chips" id="kinds">' + KINDS.map(([k,l]) =>
-      '<button data-k="'+k+'" aria-pressed="'+(k===kind)+'">'+l+'</button>').join('') + '</div>' +
-    '<div id="rows"><div class="empty">Loading.</div></div>' +
-    '<div class="field" style="margin-top:12px"><button class="ghost" id="more" hidden>Show more</button></div></section>';
-
-  $('kinds').onclick = (e) => {
-    const b = e.target.closest('[data-k]');
-    if (b) { kind = b.dataset.k; page = 0; viewTimeline(); }
-  };
-  let t;
-  $('q').oninput = (e) => {
-    clearTimeout(t);
-    t = setTimeout(() => { query = e.target.value.trim(); page = 0; loadRows(true); }, 300);
-  };
-  await loadRows(true);
-}
-
-async function loadRows(reset) {
-  const data = query
-    ? await api('/api/search?person=' + current + '&q=' + encodeURIComponent(query))
-    : await api('/api/timeline?person=' + current + '&kind=' + kind + '&page=' + page);
-  const items = data.items || [];
-
-  const html = items.map(r =>
-    '<div class="r ' + (r.flag && r.flag !== 'active' && r.flag !== 'pending' ? 'bad' : '') +
-    '" data-ref="' + r.ref_id + '" data-kind="' + r.kind + '">' +
-    '<span class="d num">' + fmt(r.date) + '</span>' +
-    '<span class="kind">' + esc(r.kind) + '</span>' +
-    '<span class="t">' + esc(r.title) + '</span>' +
-    '<span class="v num">' + esc(r.value || '') + '</span>' +
-    (r.detail ? '<span class="x">' + esc(r.detail) + '</span>' : '') + '</div>').join('');
-
-  const box = $('rows');
-  if (reset) box.innerHTML = html || '<div class="empty">Nothing here yet.</div>';
-  else box.insertAdjacentHTML('beforeend', html);
-
-  if ($('more')) {
-    $('more').hidden = !data.hasMore;
-    $('more').onclick = () => { page++; loadRows(false); };
-  }
-  box.onclick = (e) => {
-    const r = e.target.closest('[data-ref]');
-    if (r) openRecord(r.dataset.kind, r.dataset.ref);
-  };
-}
-
-/* ---------- edit --------------------------------------------------- */
-
-function modal(html) {
-  $('modalHost').innerHTML = '<div class="veil" id="veil"><div class="modal">' + html + '</div></div>';
-  $('veil').onclick = (e) => { if (e.target.id === 'veil') closeModal(); };
-}
-function closeModal() { $('modalHost').innerHTML = ''; }
-
-async function openRecord(kind, id) {
-  if (kind === 'document') { window.open('/api/documents/' + id + '/file', '_blank'); return; }
   try {
-    const rec = await api('/api/records/' + kind + '/' + id);
-    modal('<h3>Edit this ' + esc(kind) + '</h3>' +
-      rec.fields.map(f =>
-        '<div class="field"><label for="f_' + f.name + '">' + esc(f.label) + '</label>' +
-        (f.type === 'textarea'
-          ? '<textarea id="f_' + f.name + '">' + esc(f.value) + '</textarea>'
-          : '<input type="' + (f.type === 'date' ? 'date' : 'text') + '" id="f_' + f.name + '" value="' + esc(f.value) + '">') +
-        '</div>').join('') +
-      '<div class="field"><label for="f_reason">Why</label>' +
-      '<input type="text" id="f_reason" placeholder="e.g. the lab printed the wrong date"></div>' +
-      '<div class="field"><button class="go" id="saveEdit">Save change</button>' +
-      '<button class="ghost" id="cancelEdit">Cancel</button>' +
-      '<button class="ghost danger" id="delRec" style="margin-left:auto">Delete</button></div>' +
-      '<div class="status" id="editStatus"></div>');
-
-    $('cancelEdit').onclick = closeModal;
-    $('saveEdit').onclick = async () => {
-      const values = {};
-      rec.fields.forEach(f => { values[f.name] = $('f_' + f.name).value; });
-      try {
-        await put('/api/records/' + kind + '/' + id, { values, reason: $('f_reason').value });
-        closeModal(); render();
-      } catch (err) { setStatus('editStatus', err.message, 'err'); }
-    };
-    $('delRec').onclick = async () => {
-      if (!confirm('Delete this? It stays in the audit trail but leaves your records.')) return;
-      try { await api('/api/records/' + kind + '/' + id, { method:'DELETE' }); closeModal(); render(); }
-      catch (err) { setStatus('editStatus', err.message, 'err'); }
-    };
+    const r = await post('/api/people', { name });
+    cache.clear();
+    app = await api('/api/bootstrap');
+    people = app.people; current = r.personId;
+    paintPeople(); route();
   } catch (err) { alert(err.message); }
 }
 
-/* ---------- trends -------------------------------------------------- */
+const person = () => people.find((p) => p.person_id === current) || {};
 
-let param = null, range = '';
+/* ---------- sheet ---------- */
 
-async function viewTrends() {
-  const list = await api('/api/trends?person=' + current);
-  if (!list.length) {
-    $('main').innerHTML = '<div class="empty">No test results yet. Upload a lab report and its values appear here.</div>';
-    return;
-  }
-  if (!param || !list.some(p => p.parameter === param)) param = list[0].parameter;
+function sheet(html) {
+  $('sheetHost').innerHTML = '<div class="veil" id="veil"><div class="modal"><div class="grab"></div>' + html + '</div></div>';
+  $('veil').onclick = (e) => { if (e.target.id === 'veil') closeSheet(); };
+  const c = $('closeSheet'); if (c) c.onclick = closeSheet;
+}
+function closeSheet() { $('sheetHost').innerHTML = ''; }
+
+/* ================================================================
+   1. Add — the first screen, because filing a report is the job
+   ================================================================ */
+
+async function viewUpload() {
+  const events = current ? await cached('/api/events?person=' + current).catch(() => []) : [];
 
   $('main').innerHTML =
-    '<section><div class="field"><label for="pick">Test</label><select id="pick">' +
-    list.map(p => '<option value="' + esc(p.parameter) + '"' + (p.parameter===param?' selected':'') + '>' +
-      esc(p.parameter) + ' (' + p.total + ')' + (p.flagged ? ' \u2022' : '') + '</option>').join('') +
-    '</select></div><div class="chips" id="ranges">' +
-    [['','All'],['3m','3 months'],['6m','6 months'],['1y','1 year'],['3y','3 years']]
-      .map(([v,l]) => '<button data-r="'+v+'" aria-pressed="'+(v===range)+'">'+l+'</button>').join('') +
-    '</div><div id="chartBox"><div class="empty">Loading.</div></div></section>';
-
-  $('pick').onchange = (e) => { param = e.target.value; drawTrend(); };
-  $('ranges').onclick = (e) => {
-    const b = e.target.closest('[data-r]');
-    if (b) { range = b.dataset.r; viewTrends(); }
-  };
-  await drawTrend();
-}
-
-async function drawTrend() {
-  const d = await api('/api/trends/series?person=' + current +
-    '&parameter=' + encodeURIComponent(param) + '&range=' + range);
-  const pts = d.points.filter(p => p.value_a !== null);
-
-  if (!pts.length) {
-    $('chartBox').innerHTML = '<div class="empty">No numeric results for ' + esc(param) +
-      ' in this period. ' + (d.points.length
-        ? 'The values recorded are text, or in a unit the app has not been taught yet.' : '') + '</div>';
-    return;
-  }
-
-  const low = pts[0].ref_low ?? (d.band ? d.band.low : null);
-  const high = pts[0].ref_high ?? (d.band ? d.band.high : null);
-
-  const W = 800, H = 260, L = 46, R = 14, T = 14, B = 30;
-  const xs = pts.map(p => Date.parse(p.test_date));
-  const ys = pts.map(p => p.value_a);
-  const lo = Math.min.apply(null, ys.concat(low !== null ? [low] : []));
-  const hi = Math.max.apply(null, ys.concat(high !== null ? [high] : []));
-  const pad = (hi - lo) * 0.15 || Math.abs(hi * 0.1) || 1;
-  const y0 = lo - pad, y1 = hi + pad;
-  const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
-
-  const px = (v) => L + (x1 === x0 ? (W-L-R)/2 : ((v-x0)/(x1-x0)) * (W-L-R));
-  const py = (v) => T + (1 - (v-y0)/(y1-y0)) * (H-T-B);
-
-  const band = (low !== null || high !== null)
-    ? '<rect class="band" x="' + L + '" y="' + py(high ?? y1).toFixed(1) + '" width="' + (W-L-R) +
-      '" height="' + Math.max(2, py(low ?? y0) - py(high ?? y1)).toFixed(1) + '" rx="3"/>' : '';
-
-  const ticks = [y0, (y0+y1)/2, y1].map(v =>
-    '<line class="gridline" x1="'+L+'" y1="'+py(v).toFixed(1)+'" x2="'+(W-R)+'" y2="'+py(v).toFixed(1)+'"/>' +
-    '<text class="axis" x="'+(L-7)+'" y="'+(py(v)+3).toFixed(1)+'" text-anchor="end">' +
-      (+v).toFixed(Math.abs(v) < 10 ? 1 : 0) + '</text>').join('');
-
-  const path = pts.map((p,i) =>
-    (i?'L':'M') + px(Date.parse(p.test_date)).toFixed(1) + ',' + py(p.value_a).toFixed(1)).join('');
-
-  const dots = pts.map(p =>
-    '<circle class="dot ' + (p.is_abnormal?'bad':'') + '" cx="' + px(Date.parse(p.test_date)).toFixed(1) +
-    '" cy="' + py(p.value_a).toFixed(1) + '" r="4"><title>' + esc(fmt(p.test_date)) + ': ' +
-    esc(p.result_text) + ' ' + esc(p.unit || '') + '</title></circle>').join('');
-
-  const first = pts[0], last = pts[pts.length-1];
-  const change = pts.length > 1 ? last.value_a - first.value_a : null;
-
-  $('chartBox').innerHTML =
-    '<div class="chart"><svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(param)+' over time">' +
-      band + ticks + '<path class="line" d="'+path+'"/>' + dots +
-      '<text class="axis" x="'+L+'" y="'+(H-8)+'">'+esc(fmt(first.test_date))+'</text>' +
-      '<text class="axis" x="'+(W-R)+'" y="'+(H-8)+'" text-anchor="end">'+esc(fmt(last.test_date))+'</text>' +
-    '</svg><div class="legend">' +
-      '<span><span class="swatch" style="background:#2f6f52;opacity:.3"></span>Normal range' +
-        (low !== null || high !== null ? ' ' + (low ?? '') + '\u2013' + (high ?? '') : '') + '</span>' +
-      '<span><span class="swatch" style="background:var(--alert)"></span>Out of range</span>' +
-      (change !== null ? '<span>' + (change > 0 ? '+' : '') + change.toFixed(2) + ' ' +
-        esc(last.unit || '') + ' since ' + esc(fmt(first.test_date)) + '</span>' : '') +
-    '</div></div>' +
-    '<div class="rowlist" style="margin-top:14px">' +
-      d.points.slice().reverse().map(p =>
-        '<div class="r ' + (p.is_abnormal?'bad':'') + '"><span class="d num">' + fmt(p.test_date) + '</span>' +
-        '<span class="t num">' + esc(p.result_text) + ' ' + esc(p.unit || '') + '</span>' +
-        '<span class="v">' + esc(p.ref_range_text || '') + '</span>' +
-        (p.lab ? '<span class="x">' + esc(p.lab) + '</span>' : '') + '</div>').join('') +
-    '</div>';
-}
-
-/* ---------- episodes -------------------------------------------------- */
-
-async function viewEvents() {
-  const list = await api('/api/events?person=' + current);
-  $('main').innerHTML =
-    '<section><h2>Episodes of care</h2>' +
-    '<div class="sub">Group an admission, an illness or a course of treatment so its reports, prescriptions and bills sit together.</div>' +
-    '<div class="field"><button class="ghost" id="newEvent">New episode</button></div>' +
-    (list.length ? '<div class="rowlist">' + list.map(e =>
-      '<div class="r" data-ev="' + e.care_event_id + '"><span class="d num">' + fmt(e.event_date) + '</span>' +
-      '<span class="t">' + esc(e.title) + '</span>' +
-      '<span class="v">' + e.items + ' item' + (e.items===1?'':'s') + '</span>' +
-      (e.facility ? '<span class="x">' + esc(e.facility) + '</span>' : '') + '</div>').join('') + '</div>'
-      : '<div class="empty">No episodes yet.</div>') + '</section>';
-
-  $('newEvent').onclick = () => {
-    modal('<h3>New episode</h3>' +
-      '<div class="field"><label for="evDate">Started</label><input type="date" id="evDate" value="'+me.today+'"></div>' +
-      '<div class="field"><label for="evTitle">What happened</label><input type="text" id="evTitle" placeholder="e.g. Dengue, June 2026"></div>' +
-      '<div class="field"><label for="evWhere">Hospital</label><input type="text" id="evWhere"></div>' +
-      '<div class="field"><button class="go" id="evSave">Create</button><button class="ghost" id="evCancel">Cancel</button></div>' +
-      '<div class="status" id="evStatus"></div>');
-    $('evCancel').onclick = closeModal;
-    $('evSave').onclick = async () => {
-      try {
-        await post('/api/events', { person: current, date: $('evDate').value,
-          title: $('evTitle').value, facility: $('evWhere').value });
-        closeModal(); viewEvents();
-      } catch (err) { setStatus('evStatus', err.message, 'err'); }
-    };
-  };
-
-  $('main').onclick = (e) => {
-    const r = e.target.closest('[data-ev]');
-    if (r) openEvent(r.dataset.ev);
-  };
-}
-
-async function openEvent(id) {
-  const d = await api('/api/events/' + id);
-  modal('<h3>' + esc(d.event.title) + '</h3>' +
-    '<div class="sub" style="margin-left:0">' + esc(fmt(d.event.event_date)) +
-      (d.event.facility ? ' \u00b7 ' + esc(d.event.facility) : '') + '</div>' +
-    (d.items.length ? '<div class="rowlist">' + d.items.map(i =>
-      '<div class="r"><span class="d num">' + fmt(i.date) + '</span>' +
-      '<span class="kind">' + esc(i.kind) + '</span>' +
-      '<span class="t">' + esc(i.title) + '</span>' +
-      '<span class="v num">' + esc(i.value || '') + '</span></div>').join('') + '</div>'
-      : '<div class="empty">Nothing filed under this yet. Pick this episode when you upload a report.</div>') +
-    '<div class="field" style="margin-top:14px"><button class="ghost" id="evClose">Close</button></div>');
-  $('evClose').onclick = closeModal;
-}
-
-/* ---------- add ------------------------------------------------------ */
-
-async function viewAdd() {
-  const events = await api('/api/events?person=' + current).catch(() => []);
-  const READINGS = ['Blood Pressure','Fasting Blood Sugar','Post Meal Blood Sugar',
-    'Random Blood Sugar','Pulse','SpO2','Temperature','Weight','Height'];
-
-  $('main').innerHTML =
-    '<section><h2>Upload a report</h2>' +
-    '<div class="sub">Reading happens in the background. Carry on using the app, or send the next one straight away.</div>' +
-    '<div class="panel">' +
-      '<div class="field"><label for="upDate">Date on it</label><input type="date" id="upDate" value="'+me.today+'"></div>' +
-      '<div class="field"><label for="upEvent">Episode</label><select id="upEvent"><option value="">Not part of one</option>' +
-        events.map(e => '<option value="'+e.care_event_id+'">'+esc(e.title)+'</option>').join('') + '</select></div>' +
-      '<div class="field"><label for="upFiles">Scans</label><input type="file" id="upFiles" multiple accept="application/pdf,image/*"></div>' +
+    '<section><div class="panel">' +
+      '<div class="field"><label for="upFiles">Scans</label>' +
+      '<input type="file" id="upFiles" multiple accept="application/pdf,image/*"></div>' +
+      '<div class="field"><label for="upDate">Date on it</label><input type="date" id="upDate" value="'+app.today+'"></div>' +
+      '<div class="field"><label for="upWho">Whose</label><select id="upWho">' +
+        '<option value="">Work it out from the report</option>' +
+        people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===current?'':'')+'>'+esc(p.name)+'</option>').join('') +
+      '</select></div>' +
+      '<div class="field"><label for="upEvent">Episode</label><select id="upEvent">' +
+        '<option value="">Not part of one</option>' +
+        events.map((e) => '<option value="'+e.care_event_id+'">'+esc(e.title)+' \u00b7 '+fmtShort(e.event_date)+'</option>').join('') +
+        '<option value="__new">+ Start a new episode\u2026</option></select></div>' +
       '<div class="field"><label></label><button class="go" id="upGo">Upload and read</button></div>' +
-      '<div class="status" id="upStatus"></div></div></section>' +
+      '<div class="status" id="upStatus">Reading happens in the background. Send the next one straight away.</div>' +
+    '</div></section>' +
 
-    '<section><h2>Record a reading</h2>' +
-    '<div class="sub">Blood pressure, sugar or weight taken at home, with no report to attach.</div>' +
+    '<section id="inboxSec" hidden><div class="h"><h2>Being read</h2></div>' +
+      '<div class="list" id="inbox"></div></section>' +
+    '<section id="reviewSec" hidden></section>' +
+
+    '<section><div class="h"><h2>Reading at home</h2></div>' +
+    '<div class="sub">Blood pressure, sugar or weight, with no report to attach.</div>' +
     '<div class="panel">' +
-      '<div class="field"><label for="mrDate">Taken on</label><input type="date" id="mrDate" value="'+me.today+'"></div>' +
       '<div class="field"><label for="mrParam">What</label><select id="mrParam">' +
-        READINGS.map(p => '<option>'+p+'</option>').join('') + '</select></div>' +
-      '<div class="field"><label for="mrValue">Reading</label><input type="text" id="mrValue" placeholder="e.g. 128/84"></div>' +
+        ['Blood Pressure','Fasting Blood Sugar','Post Meal Blood Sugar','Random Blood Sugar',
+         'Pulse','SpO2','Temperature','Weight','Height'].map((x) => '<option>'+x+'</option>').join('') +
+      '</select></div>' +
+      '<div class="field"><label for="mrValue">Reading</label><input type="text" id="mrValue" inputmode="text" placeholder="128/84"></div>' +
       '<div class="field"><label for="mrUnit">Unit</label><input type="text" id="mrUnit" placeholder="mmHg"></div>' +
-      '<div class="field"><label for="mrNote">Note</label><input type="text" id="mrNote" placeholder="optional"></div>' +
+      '<div class="field"><label for="mrDate">Taken on</label><input type="date" id="mrDate" value="'+app.today+'"></div>' +
       '<div class="field"><label></label><button class="go" id="mrGo">Save reading</button></div>' +
-      '<div class="status" id="mrStatus"></div></div></section>' +
+      '<div class="status" id="mrStatus"></div>' +
+    '</div></section>';
 
-    '<section id="inboxSec" hidden><h2>Being read</h2><div class="rowlist" id="inbox"></div></section>' +
-    '<section id="reviewSec" hidden></section>';
-
+  $('upEvent').onchange = (e) => { if (e.target.value === '__new') newEpisode(); };
   $('upGo').onclick = doUpload;
   $('mrGo').onclick = doReading;
   pollInbox();
+}
+
+function newEpisode() {
+  sheet('<h3>New episode</h3><div class="sub">An admission, an illness, a course of treatment.</div>' +
+    '<div class="field"><label for="evTitle">What</label><input type="text" id="evTitle" placeholder="Dengue, June 2026"></div>' +
+    '<div class="field"><label for="evDate">Started</label><input type="date" id="evDate" value="'+app.today+'"></div>' +
+    '<div class="field"><label for="evWhere">Hospital</label><input type="text" id="evWhere"></div>' +
+    '<div class="field"><label for="evWho">Whose</label><select id="evWho">' +
+      people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===current?' selected':'')+'>'+esc(p.name)+'</option>').join('') +
+    '</select></div>' +
+    '<div class="field"><button class="go" id="evSave">Create</button>' +
+    '<button class="ghost" id="closeSheet">Cancel</button></div>' +
+    '<div class="status" id="evStatus"></div>');
+
+  $('evSave').onclick = async () => {
+    try {
+      const r = await post('/api/events', { person: $('evWho').value, date: $('evDate').value,
+        title: $('evTitle').value, facility: $('evWhere').value });
+      bust('/api/events');
+      closeSheet();
+      const sel = $('upEvent');
+      if (sel) {
+        const o = document.createElement('option');
+        o.value = r.careEventId; o.textContent = r.title; sel.insertBefore(o, sel.lastElementChild);
+        sel.value = r.careEventId;
+      }
+    } catch (err) { setStatus('evStatus', err.message, 'err'); }
+  };
+  const sel = $('upEvent'); if (sel) sel.value = '';
 }
 
 async function doUpload() {
@@ -588,8 +446,11 @@ async function doUpload() {
   if (!files.length) return setStatus('upStatus', 'Choose at least one scan.', 'err');
   $('upGo').disabled = true;
   try {
-    const job = await post('/api/uploads', { person: current, date: $('upDate').value,
-      careEventId: $('upEvent').value || undefined });
+    const job = await post('/api/uploads', {
+      person: $('upWho').value || undefined,
+      date: $('upDate').value,
+      careEventId: ($('upEvent').value && $('upEvent').value !== '__new') ? $('upEvent').value : undefined,
+    });
     for (let i = 0; i < files.length; i++) {
       setStatus('upStatus', 'Sending ' + (i+1) + ' of ' + files.length + '\u2026');
       const form = new FormData(); form.append('file', files[i]);
@@ -597,10 +458,9 @@ async function doUpload() {
         { method:'POST', credentials:'same-origin', body: form });
       const body = await res.json();
       if (res.status === 409 && body.duplicate) {
-        setStatus('upStatus', files[i].name + ' is already filed \u2014 skipped.');
-        continue;
+        setStatus('upStatus', files[i].name + ' is already filed \u2014 skipped.'); continue;
       }
-      if (!res.ok) throw new Error(body.error || files[i].name + ' could not be sent.');
+      if (!res.ok) throw new Error(body.error || (files[i].name + ' could not be sent.'));
     }
     $('upFiles').value = '';
     setStatus('upStatus', 'Sent. Reading in the background.', 'ok');
@@ -612,9 +472,9 @@ async function doUpload() {
 async function doReading() {
   try {
     const r = await post('/api/records/reading', { person: current, date: $('mrDate').value,
-      parameter: $('mrParam').value, result: $('mrValue').value,
-      unit: $('mrUnit').value, notes: $('mrNote').value });
+      parameter: $('mrParam').value, result: $('mrValue').value, unit: $('mrUnit').value });
     $('mrValue').value = '';
+    bust('/api/'); 
     setStatus('mrStatus', 'Saved ' + r.parameter + (r.abnormal ? ' \u2014 outside the usual range' : '') + '.',
       r.abnormal ? 'err' : 'ok');
   } catch (err) { setStatus('mrStatus', err.message, 'err'); }
@@ -627,24 +487,23 @@ async function pollInbox() {
   try {
     const jobs = await api('/api/inbox');
     $('inboxSec').hidden = !jobs.length;
-    const label = { queued:'Waiting', reading:'Reading\u2026', review:'Ready to check', error:'Failed' };
-    $('inbox').innerHTML = jobs.map(j =>
+    const label = { queued:'Waiting', reading:'Reading', review:'Ready to check', error:'Failed' };
+    $('inbox').innerHTML = jobs.map((j) =>
       '<div class="r ' + (j.status==='error'?'bad':'') + '">' +
-      '<span class="t">' + esc(j.person) + '</span>' +
-      '<span class="kind">' + j.files + ' file' + (j.files===1?'':'s') + '</span>' +
-      '<span class="v">' + (label[j.status] || j.status) + '</span>' +
+      '<span class="t">' + esc(j.person || j.detected_name || 'Working out whose\u2026') + '</span>' +
+      '<span class="tag">' + j.files + ' file' + (j.files===1?'':'s') + '</span>' +
+      '<span class="v">' + (j.status==='reading' || j.status==='queued'
+        ? '<span class="spin"></span> ' + label[j.status] : (label[j.status] || j.status)) + '</span>' +
       (j.status==='review' ? '<button class="ghost" data-review="'+j.job_id+'">Check</button>' : '') +
       (j.status==='error' ? '<button class="ghost danger" data-drop="'+j.job_id+'">Discard</button>' : '') +
-      (j.status==='error' && j.message ? '<span class="x">' + esc(j.message) + '</span>' : '') +
+      (j.status==='error' && j.message ? '<span class="x">'+esc(j.message)+'</span>' : '') +
       '</div>').join('');
     $('inbox').onclick = (e) => {
       const r = e.target.closest('[data-review]'), d = e.target.closest('[data-drop]');
       if (r) openReview(r.dataset.review);
       if (d) discard(d.dataset.drop);
     };
-    if (jobs.some(j => j.status==='queued' || j.status==='reading')) {
-      pollTimer = setTimeout(pollInbox, 4000);
-    }
+    if (jobs.some((j) => j.status==='queued' || j.status==='reading')) pollTimer = setTimeout(pollInbox, 3500);
   } catch (e) { /* a failed poll is not worth interrupting anyone over */ }
 }
 
@@ -654,45 +513,63 @@ async function openReview(jobId) {
   const x = job.extraction || {};
   reviewing = { jobId, data: x };
 
+  const who = job.person_id
+    ? '<div class="field"><label>Whose</label><div style="flex:1;font-weight:600">' +
+      esc((people.find((p) => p.person_id === job.person_id) || {}).name || '') +
+      (job.detected_name ? ' <span class="tag">read as ' + esc(job.detected_name) + '</span>' : '') +
+      ' <button class="ghost" id="rvChange">Change</button></div></div>'
+    : '<div class="warnbox">The name on this report did not match anyone on file' +
+      (job.detected_name ? ' (it reads \u201c' + esc(job.detected_name) + '\u201d)' : '') + '. Choose who it belongs to.</div>' +
+      '<div class="field"><label for="rvWho">Whose</label><select id="rvWho"><option value="">Choose\u2026</option>' +
+      people.map((p) => '<option value="'+p.person_id+'">'+esc(p.name)+'</option>').join('') + '</select></div>';
+
   $('reviewSec').hidden = false;
-  $('reviewSec').innerHTML = '<h2>Check before filing</h2><div class="panel">' +
+  $('reviewSec').innerHTML = '<div class="h"><h2>Check before filing</h2></div><div class="panel">' +
     ((x.uncertain_fields && x.uncertain_fields.length)
-      ? '<div class="warnbox">Could not read clearly: ' + esc(x.uncertain_fields.join(', ')) +
-        '. Compare against the scan before filing.</div>' : '') +
+      ? '<div class="warnbox">Could not read clearly: ' + esc(x.uncertain_fields.join(', ')) + '. Compare against the scan.</div>' : '') +
+    who +
     '<div class="field"><label for="rvDate">Date</label><input type="date" id="rvDate" value="'+esc(x.event_date||'')+'"></div>' +
     '<div class="field"><label for="rvType">Type</label><input type="text" id="rvType" value="'+esc(x.record_type||'')+'"></div>' +
     '<div class="field"><label for="rvSummary">Summary</label><textarea id="rvSummary">'+esc(x.summary||'')+'</textarea></div>' +
     '<div class="legend">' +
-      '<span><b>'+(x.tests||[]).length+'</b> tests</span>' +
-      '<span><b>'+(x.medicines||[]).length+'</b> medicines</span>' +
-      '<span><b>'+(x.diagnoses||[]).length+'</b> diagnoses</span>' +
-      '<span><b>'+(x.follow_ups||[]).length+'</b> follow-ups</span>' +
-      '<span><b>'+(x.bills||[]).length+'</b> billed items</span></div>' +
-    ((x.tests||[]).length ? '<div class="rowlist" style="margin-top:12px;max-height:280px;overflow:auto">' +
-      x.tests.slice(0,60).map(t => '<div class="r ' + (t.flag?'bad':'') + '">' +
-        '<span class="t">' + esc(t.parameter_standard || t.parameter) + '</span>' +
-        '<span class="v num">' + esc(t.result) + ' ' + esc(t.unit||'') + '</span>' +
-        (t.reference_range ? '<span class="x">ref ' + esc(t.reference_range) + '</span>' : '') +
-        '</div>').join('') + '</div>' : '') +
+      '<span><b>'+(x.tests||[]).length+'</b> tests</span><span><b>'+(x.medicines||[]).length+'</b> medicines</span>' +
+      '<span><b>'+(x.diagnoses||[]).length+'</b> diagnoses</span><span><b>'+(x.follow_ups||[]).length+'</b> follow-ups</span>' +
+      '<span><b>'+(x.bills||[]).length+'</b> billed</span></div>' +
+    ((x.tests||[]).length ? '<div class="list" style="margin-top:12px;max-height:300px;overflow:auto">' +
+      x.tests.slice(0,80).map((t) => '<div class="r ' + (t.flag?'bad':'') + '">' +
+        '<span class="t">'+esc(t.parameter_standard || t.parameter)+'</span>' +
+        '<span class="v num">'+esc(t.result)+' '+esc(t.unit||'')+'</span>' +
+        (t.reference_range ? '<span class="x">ref '+esc(t.reference_range)+'</span>' : '') +
+      '</div>').join('') + '</div>' : '') +
     '<div class="field" style="margin-top:14px"><button class="go" id="rvGo">File it</button>' +
     '<button class="ghost danger" id="rvDrop">Discard</button></div>' +
     '<div class="status" id="rvStatus"></div></div>';
 
-  $('rvGo').onclick = fileIt;
+  if ($('rvChange')) $('rvChange').onclick = () => {
+    $('rvChange').closest('.field').outerHTML =
+      '<div class="field"><label for="rvWho">Whose</label><select id="rvWho">' +
+      people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===job.person_id?' selected':'')+'>'+esc(p.name)+'</option>').join('') +
+      '</select></div>';
+  };
+  $('rvGo').onclick = () => fileIt(job);
   $('rvDrop').onclick = () => discard(jobId);
   $('reviewSec').scrollIntoView({ behavior:'smooth', block:'nearest' });
 }
 
-async function fileIt() {
+async function fileIt(job) {
   const jobId = reviewing.jobId, data = reviewing.data;
   $('rvGo').disabled = true;
   setStatus('rvStatus', 'Filing\u2026');
   try {
-    const payload = Object.assign({}, data, {
-      event_date: $('rvDate').value, record_type: $('rvType').value, summary: $('rvSummary').value });
-    const r = await post('/api/uploads/' + jobId + '/approve', payload);
+    const who = $('rvWho') ? $('rvWho').value : job.person_id;
+    if (!who) throw new Error('Choose who this report belongs to.');
+    if (who !== job.person_id) await post('/api/uploads/' + jobId + '/person', { person: who });
+
+    const r = await post('/api/uploads/' + jobId + '/approve', Object.assign({}, data, {
+      event_date: $('rvDate').value, record_type: $('rvType').value, summary: $('rvSummary').value }));
     $('reviewSec').hidden = true;
     reviewing = null;
+    cache.clear();
     setStatus('upStatus', 'Filed: ' + r.counts.tests + ' tests, ' + r.counts.medicines +
       ' medicines, ' + r.counts.documents + ' document(s).', 'ok');
     pollInbox();
@@ -706,49 +583,352 @@ async function discard(jobId) {
   pollInbox();
 }
 
-/* ---------- settings -------------------------------------------------- */
+/* ================================================================
+   2. Overview
+   ================================================================ */
+
+async function viewOverview() {
+  const [snap, dash] = await Promise.all([
+    cached('/api/snapshot?person=' + current),
+    cached('/api/dashboard'),
+  ]);
+  const p = snap.profile || {};
+  const mine = (l) => l.filter((x) => x.person === person().name);
+  const overdue = mine(dash.overdue), upcoming = mine(dash.upcoming);
+
+  const fu = (list, bad) => list.map((f) =>
+    '<div class="r ' + (bad?'bad':'') + '"><span class="d num">' + fmtShort(f.due_date) + '</span>' +
+    '<span class="t">' + esc(f.instruction || f.type) + '</span>' +
+    '<span class="v">' + esc(rel(f.due_date)) + '</span>' +
+    '<button class="ghost" data-done="'+f.follow_up_id+'">Done</button></div>').join('');
+
+  $('main').innerHTML =
+    '<section><table class="facts">' +
+      '<tr><td class="k">Blood group</td><td>'+esc(p.blood_group || '\u2014')+'</td></tr>' +
+      '<tr><td class="k">Allergies</td><td class="'+(p.allergies?'hi':'')+'">'+esc(p.allergies || 'None recorded')+'</td></tr>' +
+      '<tr><td class="k">Ongoing conditions</td><td>'+esc(p.chronic_conditions || 'None recorded')+'</td></tr>' +
+      '<tr><td class="k">Last seen</td><td>'+(snap.lastVisit ? esc(fmt(snap.lastVisit.event_date)+' \u00b7 '+(snap.lastVisit.record_type||'')) : '\u2014')+'</td></tr>' +
+    '</table></section>' +
+    (overdue.length ? '<section><div class="h"><h2>Overdue</h2></div><div class="list">'+fu(overdue,true)+'</div></section>' : '') +
+    (upcoming.length ? '<section><div class="h"><h2>Coming up</h2></div><div class="list">'+fu(upcoming,false)+'</div></section>' : '') +
+    (snap.abnormalTests.length ? '<section><div class="h"><h2>Out of range</h2></div><div class="list">' +
+      snap.abnormalTests.map((t) => '<div class="r bad" data-tap data-trend="'+esc(t.parameter)+'">' +
+        '<span class="d num">'+fmtShort(t.test_date)+'</span><span class="t">'+esc(t.parameter)+'</span>' +
+        '<span class="v num">'+esc([t.result_text,t.unit].filter(Boolean).join(' '))+'</span></div>').join('') +
+      '</div></section>' : '') +
+    (snap.activeMedicines.length ? '<section><div class="h"><h2>Current medicines</h2></div><div class="list">' +
+      snap.activeMedicines.map((m) => '<div class="r"><span class="d num">'+fmtShort(m.prescribed_on)+'</span>' +
+        '<span class="t">'+esc([m.name,m.strength].filter(Boolean).join(' '))+'</span>' +
+        '<span class="v">'+esc([m.dose,m.frequency].filter(Boolean).join(' '))+'</span>' +
+        (m.end_date ? '' : '<span class="tag">no end date</span>')+'</div>').join('') +
+      '</div></section>' : '') +
+    '<section><div class="h"><h2>Doctor handout</h2></div>' +
+    '<div class="sub">One page: conditions, medicines, latest results, open follow-ups.</div>' +
+    '<div class="field"><button class="ghost" id="openHandout">Open &amp; print</button>' +
+    '<button class="ghost" id="shareHandout">24-hour link</button></div>' +
+    '<div class="status" id="hStatus"></div></section>';
+
+  $('main').onclick = async (e) => {
+    const d = e.target.closest('[data-done]');
+    const t = e.target.closest('[data-trend]');
+    if (d) { await post('/api/records/followup/'+d.dataset.done+'/complete', {}); cache.clear(); route(); }
+    if (t) go('trend', { parameter: t.dataset.trend });
+  };
+  $('openHandout').onclick = () => window.open('/api/handout?person=' + current, '_blank');
+  $('shareHandout').onclick = async () => {
+    try {
+      const r = await post('/api/handout/share', { person: current, hours: 24 });
+      await navigator.clipboard.writeText(r.url).catch(() => {});
+      setStatus('hStatus', 'Copied. Works for ' + r.hours + ' hours: ' + r.url, 'ok');
+    } catch (err) { setStatus('hStatus', err.message, 'err'); }
+  };
+}
+
+/* ================================================================
+   3. Tests — panels, then a grid, then one test
+   ================================================================ */
+
+async function viewPanels() {
+  const panels = await cached('/api/panels?person=' + current);
+  if (!panels.length) {
+    $('main').innerHTML = '<div class="empty">No test results yet.<br>Upload a lab report and its values appear here, grouped by panel.</div>';
+    return;
+  }
+  $('main').innerHTML =
+    '<section><div class="sub">Grouped the way a lab report is. Tap a panel to see every result side by side.</div>' +
+    '<div class="tiles">' + panels.map((p) =>
+      '<button class="tile" data-cat="'+esc(p.category)+'"><b>'+esc(p.category)+'</b>' +
+      '<span>'+p.tests+' test'+(p.tests===1?'':'s')+' \u00b7 '+p.results+' result'+(p.results===1?'':'s')+'<br>' +
+      'latest '+fmtShort(p.latest)+
+      (p.flagged ? ' \u00b7 <span class="flag">'+p.flagged+' out of range</span>' : '')+'</span></button>').join('') +
+    '</div></section>';
+  $('main').onclick = (e) => {
+    const t = e.target.closest('[data-cat]');
+    if (t) go('panel', { category: t.dataset.cat });
+  };
+}
+
+async function viewPanel(p) {
+  const category = p.category || '';
+  $('htitle').textContent = category;
+  const d = await cached('/api/panel?person=' + current + '&category=' + encodeURIComponent(category));
+
+  if (!d.rows.length) { $('main').innerHTML = '<div class="empty">Nothing in this panel yet.</div>'; return; }
+
+  const head = '<tr><th>Test</th>' + d.dates.map((x) => '<th>'+fmtShort(x)+'</th>').join('') + '<th class="ref">Reference</th></tr>';
+  const body = d.rows.map((r) =>
+    '<tr data-trend="'+esc(r.parameter)+'"><th>'+esc(r.parameter)+(r.unit?'<br><span style="font-weight:400;color:var(--faint);font-size:11px">'+esc(r.unit)+'</span>':'')+'</th>' +
+    d.dates.map((dt) => {
+      const v = r.values[dt];
+      return '<td class="'+(v && v.abnormal ? 'ab':'')+'">'+(v ? esc(v.text) : '\u00b7')+'</td>';
+    }).join('') +
+    '<td class="ref">'+esc(r.reference || '')+'</td></tr>').join('');
+
+  $('main').innerHTML =
+    '<section><div class="sub">Every result in this panel, newest first. Tap a row for its chart.</div>' +
+    '<div class="grid"><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>' +
+    '<div class="legend"><span><span class="swatch" style="background:var(--alert-tint);border:1px solid #e6cdc9"></span>Out of range</span>' +
+    '<span>' + d.dates.length + ' most recent dates shown</span></div></section>';
+
+  $('main').onclick = (e) => {
+    const r = e.target.closest('[data-trend]');
+    if (r) go('trend', { parameter: r.dataset.trend });
+  };
+}
+
+async function viewTrend(p) {
+  const parameter = p.parameter || '';
+  const range = p.range || '';
+  $('htitle').textContent = parameter;
+
+  $('main').innerHTML =
+    '<section><div class="chips" id="ranges">' +
+    [['','All'],['3m','3 months'],['6m','6 months'],['1y','1 year'],['3y','3 years']]
+      .map(([v,l]) => '<button data-r="'+v+'" aria-pressed="'+(v===range)+'">'+l+'</button>').join('') +
+    '</div><div id="chartBox"><div class="empty">Loading&hellip;</div></div></section>';
+
+  $('ranges').onclick = (e) => {
+    const b = e.target.closest('[data-r]');
+    if (b) go('trend', { parameter, range: b.dataset.r }, true);
+  };
+
+  const d = await cached('/api/trends/series?person=' + current +
+    '&parameter=' + encodeURIComponent(parameter) + '&range=' + range);
+  const pts = d.points.filter((x) => x.value_a !== null);
+
+  const table = '<div class="list" style="margin-top:14px">' + d.points.slice().reverse().map((x) =>
+    '<div class="r ' + (x.is_abnormal?'bad':'') + '"><span class="d num">'+fmt(x.test_date)+'</span>' +
+    '<span class="t num">'+esc(x.result_text)+' '+esc(x.unit||'')+'</span>' +
+    '<span class="v">'+esc(x.ref_range_text||'')+'</span>' +
+    (x.lab ? '<span class="x">'+esc(x.lab)+'</span>' : '') + '</div>').join('') + '</div>';
+
+  if (!pts.length) {
+    $('chartBox').innerHTML = '<div class="empty">No numeric results to plot in this period.' +
+      (d.points.length ? ' The values are text, or in a unit the app has not been taught yet.' : '') + '</div>' +
+      (d.points.length ? table : '');
+    return;
+  }
+
+  const low = pts[0].ref_low ?? (d.band ? d.band.low : null);
+  const high = pts[0].ref_high ?? (d.band ? d.band.high : null);
+  const W=760,H=250,L=44,R=12,T=12,B=28;
+  const xs = pts.map((x) => Date.parse(x.test_date)), ys = pts.map((x) => x.value_a);
+  const lo = Math.min.apply(null, ys.concat(low  !== null ? [low]  : []));
+  const hi = Math.max.apply(null, ys.concat(high !== null ? [high] : []));
+  const pad = (hi-lo)*0.16 || Math.abs(hi*0.1) || 1;
+  const y0 = lo-pad, y1 = hi+pad, x0 = Math.min.apply(null,xs), x1 = Math.max.apply(null,xs);
+  const px = (v) => L + (x1===x0 ? (W-L-R)/2 : ((v-x0)/(x1-x0))*(W-L-R));
+  const py = (v) => T + (1-(v-y0)/(y1-y0))*(H-T-B);
+
+  const band = (low !== null || high !== null)
+    ? '<rect class="band" x="'+L+'" y="'+py(high ?? y1).toFixed(1)+'" width="'+(W-L-R)+
+      '" height="'+Math.max(2, py(low ?? y0)-py(high ?? y1)).toFixed(1)+'" rx="3"/>' : '';
+  const ticks = [y0,(y0+y1)/2,y1].map((v) =>
+    '<line class="gridline" x1="'+L+'" y1="'+py(v).toFixed(1)+'" x2="'+(W-R)+'" y2="'+py(v).toFixed(1)+'"/>' +
+    '<text class="axis" x="'+(L-6)+'" y="'+(py(v)+3).toFixed(1)+'" text-anchor="end">'+
+      (+v).toFixed(Math.abs(v)<10?1:0)+'</text>').join('');
+  const path = pts.map((x,i) => (i?'L':'M')+px(Date.parse(x.test_date)).toFixed(1)+','+py(x.value_a).toFixed(1)).join('');
+  const dots = pts.map((x) => '<circle class="dot '+(x.is_abnormal?'bad':'')+'" cx="'+
+    px(Date.parse(x.test_date)).toFixed(1)+'" cy="'+py(x.value_a).toFixed(1)+'" r="4.5"><title>'+
+    esc(fmt(x.test_date))+': '+esc(x.result_text)+' '+esc(x.unit||'')+'</title></circle>').join('');
+
+  const first = pts[0], last = pts[pts.length-1];
+  const change = pts.length > 1 ? last.value_a - first.value_a : null;
+
+  $('chartBox').innerHTML =
+    '<div class="chart"><svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(parameter)+' over time">' +
+    band + ticks + '<path class="line" d="'+path+'"/>' + dots +
+    '<text class="axis" x="'+L+'" y="'+(H-7)+'">'+esc(fmtShort(first.test_date))+'</text>' +
+    '<text class="axis" x="'+(W-R)+'" y="'+(H-7)+'" text-anchor="end">'+esc(fmtShort(last.test_date))+'</text>' +
+    '</svg><div class="legend">' +
+    '<span><span class="swatch" style="background:#2c6a4f;opacity:.32"></span>Normal range' +
+      (low !== null || high !== null ? ' '+(low ?? '')+'\u2013'+(high ?? '') : '') + '</span>' +
+    (change !== null ? '<span>'+(change>0?'+':'')+change.toFixed(2)+' '+esc(last.unit||'')+
+      ' since '+esc(fmtShort(first.test_date))+'</span>' : '') +
+    '</div></div>' + table;
+}
+
+/* ================================================================
+   4. History
+   ================================================================ */
+
+const KINDS = [['all','All'],['test','Tests'],['medicine','Medicines'],['record','Visits'],
+  ['document','Documents'],['diagnosis','Diagnoses'],['followup','Follow-ups'],['bill','Bills']];
+let kind = 'all', page = 0, query = '';
+
+async function viewHistory() {
+  $('main').innerHTML =
+    '<section><div class="field"><input type="search" id="q" placeholder="Search records" value="'+esc(query)+'"></div>' +
+    '<div class="chips" id="kinds">' + KINDS.map(([k,l]) =>
+      '<button data-k="'+k+'" aria-pressed="'+(k===kind)+'">'+l+'</button>').join('') + '</div>' +
+    '<div id="rows"><div class="empty">Loading&hellip;</div></div>' +
+    '<div class="field" style="margin-top:12px"><button class="ghost" id="more" hidden>Show more</button></div></section>';
+
+  $('kinds').onclick = (e) => {
+    const b = e.target.closest('[data-k]');
+    if (!b) return;
+    kind = b.dataset.k; page = 0;
+    [...$('kinds').children].forEach((x) => x.setAttribute('aria-pressed', x.dataset.k === kind));
+    loadRows(true);
+  };
+  let t;
+  $('q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { query = e.target.value.trim(); page = 0; loadRows(true); }, 280); };
+  await loadRows(true);
+}
+
+async function loadRows(reset) {
+  const path = query
+    ? '/api/search?person=' + current + '&q=' + encodeURIComponent(query)
+    : '/api/timeline?person=' + current + '&kind=' + kind + '&page=' + page;
+  const data = page === 0 ? await cached(path) : await api(path);
+  const items = data.items || [];
+
+  const html = items.map((r) =>
+    '<div class="r ' + (r.flag && r.flag!=='active' && r.flag!=='pending' ? 'bad':'') +
+    '" data-tap data-ref="'+r.ref_id+'" data-kind="'+r.kind+'">' +
+    '<span class="d num">'+fmtShort(r.date)+'</span><span class="tag">'+esc(r.kind)+'</span>' +
+    '<span class="t">'+esc(r.title)+'</span><span class="v num">'+esc(r.value||'')+'</span>' +
+    (r.detail ? '<span class="x">'+esc(r.detail)+'</span>' : '') + '</div>').join('');
+
+  const box = $('rows');
+  if (reset) box.innerHTML = items.length ? '<div class="list">'+html+'</div>' : '<div class="empty">Nothing here yet.</div>';
+  else if (box.querySelector('.list')) box.querySelector('.list').insertAdjacentHTML('beforeend', html);
+
+  if ($('more')) { $('more').hidden = !data.hasMore; $('more').onclick = () => { page++; loadRows(false); }; }
+  box.onclick = (e) => {
+    const r = e.target.closest('[data-ref]');
+    if (r) openRecord(r.dataset.kind, r.dataset.ref);
+  };
+}
+
+async function openRecord(kind, id) {
+  if (kind === 'document') { window.open('/api/documents/' + id + '/file', '_blank'); return; }
+  try {
+    const rec = await api('/api/records/' + kind + '/' + id);
+    sheet('<h3>Edit</h3><div class="sub">Every change is kept with its reason.</div>' +
+      rec.fields.map((f) =>
+        '<div class="field"><label for="f_'+f.name+'">'+esc(f.label)+'</label>' +
+        (f.type === 'textarea'
+          ? '<textarea id="f_'+f.name+'">'+esc(f.value)+'</textarea>'
+          : '<input type="'+(f.type==='date'?'date':'text')+'" id="f_'+f.name+'" value="'+esc(f.value)+'">') +
+        '</div>').join('') +
+      '<div class="field"><label for="f_reason">Why</label>' +
+      '<input type="text" id="f_reason" placeholder="the lab printed the wrong date"></div>' +
+      '<div class="field"><button class="go" id="saveEdit">Save</button>' +
+      '<button class="ghost" id="closeSheet">Cancel</button>' +
+      '<button class="ghost danger" id="delRec" style="margin-left:auto">Delete</button></div>' +
+      '<div class="status" id="editStatus"></div>');
+
+    $('saveEdit').onclick = async () => {
+      const values = {};
+      rec.fields.forEach((f) => { values[f.name] = $('f_'+f.name).value; });
+      try {
+        await put('/api/records/'+kind+'/'+id, { values, reason: $('f_reason').value });
+        cache.clear(); closeSheet(); route();
+      } catch (err) { setStatus('editStatus', err.message, 'err'); }
+    };
+    $('delRec').onclick = async () => {
+      if (!confirm('Delete this? It stays in the audit trail but leaves your records.')) return;
+      try { await api('/api/records/'+kind+'/'+id, { method:'DELETE' }); cache.clear(); closeSheet(); route(); }
+      catch (err) { setStatus('editStatus', err.message, 'err'); }
+    };
+  } catch (err) { alert(err.message); }
+}
+
+/* ================================================================
+   5. More
+   ================================================================ */
+
+async function viewMore() {
+  $('main').innerHTML =
+    '<section><div class="tiles">' +
+      '<button class="tile" data-go="episodes"><b>Episodes of care</b><span>Group an admission or illness</span></button>' +
+      '<button class="tile" data-go="settings"><b>Details &amp; exports</b><span>Profile, spreadsheet, scans</span></button>' +
+    '</div></section>';
+  $('main').onclick = (e) => {
+    const t = e.target.closest('[data-go]');
+    if (t) go(t.dataset.go);
+  };
+}
+
+async function viewEpisodes() {
+  const list = await cached('/api/events?person=' + current);
+  $('main').innerHTML =
+    '<section><div class="sub">Group an admission, an illness or a course of treatment so its reports, prescriptions and bills sit together. New episodes are created on the Add screen.</div>' +
+    (list.length ? '<div class="list">' + list.map((e) =>
+      '<div class="r" data-tap data-ev="'+e.care_event_id+'"><span class="d num">'+fmtShort(e.event_date)+'</span>' +
+      '<span class="t">'+esc(e.title)+'</span>' +
+      '<span class="v">'+e.items+' item'+(e.items===1?'':'s')+'</span>' +
+      (e.facility ? '<span class="x">'+esc(e.facility)+'</span>' : '') + '</div>').join('') + '</div>'
+      : '<div class="empty">No episodes yet.</div>') + '</section>';
+  $('main').onclick = async (e) => {
+    const r = e.target.closest('[data-ev]');
+    if (!r) return;
+    const d = await api('/api/events/' + r.dataset.ev);
+    sheet('<h3>'+esc(d.event.title)+'</h3><div class="sub">'+esc(fmt(d.event.event_date))+
+      (d.event.facility ? ' \u00b7 '+esc(d.event.facility) : '')+'</div>' +
+      (d.items.length ? '<div class="list">' + d.items.map((i) =>
+        '<div class="r"><span class="d num">'+fmtShort(i.date)+'</span><span class="tag">'+esc(i.kind)+'</span>' +
+        '<span class="t">'+esc(i.title)+'</span><span class="v num">'+esc(i.value||'')+'</span></div>').join('') + '</div>'
+        : '<div class="empty">Nothing filed under this yet.</div>') +
+      '<div class="field" style="margin-top:14px"><button class="ghost" id="closeSheet">Close</button></div>');
+  };
+}
 
 async function viewSettings() {
-  const results = await Promise.all([
-    api('/api/profile?person=' + current),
+  const [profile, aliases] = await Promise.all([
+    cached('/api/profile?person=' + current),
     api('/api/records/aliases/list').catch(() => []),
   ]);
-  const profile = results[0], aliases = results[1];
-
   const f = (id, label, value, type) =>
     '<div class="field"><label for="'+id+'">'+label+'</label>' +
-    (type === 'textarea'
-      ? '<textarea id="'+id+'">'+esc(value||'')+'</textarea>'
+    (type === 'textarea' ? '<textarea id="'+id+'">'+esc(value||'')+'</textarea>'
       : '<input type="'+(type||'text')+'" id="'+id+'" value="'+esc(value||'')+'">') + '</div>';
 
   $('main').innerHTML =
-    '<section><h2>' + esc(person().name) + '\u2019s details</h2>' +
+    '<section><div class="h"><h2>'+esc(person().name)+'</h2></div>' +
     '<div class="sub">These appear at the top of the doctor handout.</div><div class="panel">' +
-      f('pDob','Date of birth', profile.date_of_birth, 'date') +
-      f('pBlood','Blood group', profile.blood_group) +
+      f('pDob','Date of birth', profile.date_of_birth, 'date') + f('pBlood','Blood group', profile.blood_group) +
       f('pAllergy','Allergies', profile.allergies, 'textarea') +
-      f('pChronic','Ongoing conditions', profile.chronic_conditions, 'textarea') +
+      f('pChronic','Conditions', profile.chronic_conditions, 'textarea') +
       f('pDocs','Regular doctors', profile.regular_doctors) +
-      f('pEmerg','Emergency contact', profile.emergency_contact) +
-      f('pIns','Insurance', profile.insurance) +
-      '<div class="field"><label></label><button class="go" id="pSave">Save details</button></div>' +
+      f('pEmerg','Emergency contact', profile.emergency_contact) + f('pIns','Insurance', profile.insurance) +
+      '<div class="field"><label></label><button class="go" id="pSave">Save</button></div>' +
       '<div class="status" id="pStatus"></div></div></section>' +
 
-    '<section><h2>Take everything with you</h2>' +
+    '<section><div class="h"><h2>Take everything with you</h2></div>' +
     '<div class="sub">Built fresh each time, never stored. Nothing here locks you in.</div>' +
-    '<div class="field"><button class="ghost" id="dlX">Download spreadsheet</button>' +
-    '<button class="ghost" id="dlZ">Download all scans</button></div>' +
+    '<div class="field"><button class="ghost" id="dlX">Spreadsheet</button>' +
+    '<button class="ghost" id="dlZ">All scans</button></div>' +
     '<div class="status" id="dlStatus"></div></section>' +
 
-    '<section><h2>Test names the app has learned</h2>' +
-    '<div class="sub">Labs print the same test many ways. Correct a mapping here and every result using it updates.</div>' +
-    (aliases.length ? '<div class="rowlist">' + aliases.map(a =>
-      '<div class="r" data-alias="' + esc(a.alias_key) + '">' +
-      '<span class="t">' + esc(a.original) + '</span>' +
-      '<span class="v">\u2192 ' + esc(a.parameter) + '</span>' +
-      '<span class="kind">' + a.uses + ' use' + (a.uses===1?'':'s') + '</span></div>').join('') + '</div>'
-      : '<div class="empty">Nothing learned yet. New names appear here as reports are read.</div>') +
-    '</section>';
+    '<section><div class="h"><h2>Test names learned</h2></div>' +
+    '<div class="sub">Labs print the same test many ways. Correct a mapping and every result using it updates.</div>' +
+    (aliases.length ? '<div class="list">' + aliases.map((a) =>
+      '<div class="r" data-tap data-alias="'+esc(a.alias_key)+'"><span class="t">'+esc(a.original)+'</span>' +
+      '<span class="v">\u2192 '+esc(a.parameter)+'</span>' +
+      '<span class="tag">'+a.uses+'</span></div>').join('') + '</div>'
+      : '<div class="empty">Nothing learned yet.</div>') + '</section>';
 
   $('pSave').onclick = async () => {
     try {
@@ -756,7 +936,7 @@ async function viewSettings() {
         blood_group: $('pBlood').value, allergies: $('pAllergy').value,
         chronic_conditions: $('pChronic').value, regular_doctors: $('pDocs').value,
         emergency_contact: $('pEmerg').value, insurance: $('pIns').value });
-      setStatus('pStatus', 'Saved.', 'ok');
+      bust('/api/'); setStatus('pStatus', 'Saved.', 'ok');
     } catch (err) { setStatus('pStatus', err.message, 'err'); }
   };
   $('dlX').onclick = (e) => download('/api/export/workbook', e.target);
@@ -764,25 +944,20 @@ async function viewSettings() {
   $('main').onclick = (e) => {
     const a = e.target.closest('[data-alias]');
     if (!a) return;
-    editAlias(a.dataset.alias, a.querySelector('.t').textContent,
-      a.querySelector('.v').textContent.replace('\u2192 ', ''));
-  };
-}
-
-function editAlias(key, original, currentName) {
-  modal('<h3>Standard name</h3>' +
-    '<div class="sub" style="margin-left:0">Printed on the report as \u201c' + esc(original) + '\u201d</div>' +
-    '<div class="field"><label for="aName">Standard name</label><input type="text" id="aName" value="'+esc(currentName)+'"></div>' +
-    '<div class="field"><label for="aUnit">Usual unit</label><input type="text" id="aUnit"></div>' +
-    '<div class="field"><button class="go" id="aSave">Save</button><button class="ghost" id="aCancel">Cancel</button></div>' +
-    '<div class="status" id="aStatus"></div>');
-  $('aCancel').onclick = closeModal;
-  $('aSave').onclick = async () => {
-    try {
-      await put('/api/records/aliases/' + encodeURIComponent(key),
-        { parameter: $('aName').value, unit: $('aUnit').value });
-      closeModal(); viewSettings();
-    } catch (err) { setStatus('aStatus', err.message, 'err'); }
+    const original = a.querySelector('.t').textContent;
+    const name = a.querySelector('.v').textContent.replace('\u2192 ','');
+    sheet('<h3>Standard name</h3><div class="sub">Printed on the report as \u201c'+esc(original)+'\u201d</div>' +
+      '<div class="field"><label for="aName">Standard</label><input type="text" id="aName" value="'+esc(name)+'"></div>' +
+      '<div class="field"><label for="aUnit">Usual unit</label><input type="text" id="aUnit"></div>' +
+      '<div class="field"><button class="go" id="aSave">Save</button>' +
+      '<button class="ghost" id="closeSheet">Cancel</button></div><div class="status" id="aStatus"></div>');
+    $('aSave').onclick = async () => {
+      try {
+        await put('/api/records/aliases/'+encodeURIComponent(a.dataset.alias),
+          { parameter: $('aName').value, unit: $('aUnit').value });
+        cache.clear(); closeSheet(); route();
+      } catch (err) { setStatus('aStatus', err.message, 'err'); }
+    };
   };
 }
 
@@ -793,22 +968,18 @@ async function download(path, button) {
   button.disabled = true; button.textContent = 'Preparing\u2026';
   try {
     const res = await fetch(path, { credentials:'same-origin' });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      throw new Error(e.error || 'Export failed.');
-    }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Export failed.'); }
     const cd = res.headers.get('Content-Disposition') || '';
     const match = cd.match(/filename="([^"]+)"/);
     const name = match ? match[1] : 'export';
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement('a');
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
     const inc = res.headers.get('X-Documents-Included');
     setStatus('dlStatus', inc
-      ? 'Saved ' + name + ' \u2014 ' + inc + ' of ' + res.headers.get('X-Documents-Total') + ' documents.'
-      : 'Saved ' + name + '.', 'ok');
+      ? 'Saved '+name+' \u2014 '+inc+' of '+res.headers.get('X-Documents-Total')+' documents.'
+      : 'Saved '+name+'.', 'ok');
   } catch (err) { setStatus('dlStatus', err.message, 'err'); }
   finally { button.disabled = false; button.textContent = original; }
 }
