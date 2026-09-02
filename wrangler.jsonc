@@ -1,0 +1,55 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fmr-v",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The PWA. Served from the same Worker, so there is only one thing to deploy.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  // Provisioned automatically by the Deploy to Cloudflare button.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fmr",
+      "database_id": "61315fe4-03c3-4ccd-877f-52ee05d690c4",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Background document reading. Uploads return instantly; Gemini runs here.
+  "queues": {
+    "producers": [{ "binding": "OCR", "queue": "fmr-ocr" }],
+    "consumers": [
+      {
+        "queue": "fmr-ocr",
+        "max_batch_size": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "fmr-ocr-dlq"
+      }
+    ]
+  },
+
+  // Nightly: mirror to Google Sheet, expire shares, tidy the audit log.
+  "triggers": { "crons": ["30 21 * * *"] },
+
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "vishal.cloudflareaccess.com",
+    "TIMEZONE": "Asia/Kolkata",
+    "APP_TITLE": "Family Medical Records"
+  },
+
+  "observability": { "enabled": true }
+
+  // Secrets, set once during deployment (never stored in this file):
+  //   GEMINI_API_KEY         from aistudio.google.com/apikey
+  //   GOOGLE_CLIENT_ID       from Google Cloud Console
+  //   GOOGLE_CLIENT_SECRET   from Google Cloud Console
+  //   GOOGLE_REFRESH_TOKEN   from the one-time Connect Google step
+  //   ACCESS_AUD             Application Audience tag from Cloudflare Access
+}

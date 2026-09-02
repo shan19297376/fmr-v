@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Family Medical Records</title>
+<meta name="theme-color" content="#12414d">
+<link rel="manifest" href="/manifest.json">
+<style>
+  :root{
+    --ink:#1a2429;
+    --muted:#63777f;
+    --line:#dde5e8;
+    --paper:#f7f9fa;
+    --deep:#12414d;
+    --alert:#a8433a;
+    --ok:#2f6f52;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  /* Lab values must line up column-to-column, so figures are tabular everywhere numbers appear. */
+  .num{font-variant-numeric:tabular-nums}
+
+  header{
+    background:var(--deep);color:#fff;
+    padding:calc(14px + env(safe-area-inset-top)) 20px 14px;
+    display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  }
+  header h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+  header .who{margin-left:auto;font-size:13px;color:#a9c6ce}
+
+  main{max-width:720px;margin:0 auto;padding:20px}
+
+  .people{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:20px}
+  .people button{
+    flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink);
+    padding:9px 16px;border-radius:999px;font-size:15px;cursor:pointer;
+  }
+  .people button[aria-pressed="true"]{background:var(--deep);border-color:var(--deep);color:#fff}
+
+  ul{list-style:none;margin:0;padding:0}
+  li{
+    background:#fff;border:1px solid var(--line);border-radius:10px;
+    padding:13px 15px;margin-bottom:8px;
+  }
+  .row{display:flex;gap:12px;align-items:baseline}
+  .row .date{color:var(--muted);font-size:13px;flex:0 0 84px}
+  .row .title{font-weight:600}
+  .row .val{margin-left:auto;text-align:right}
+  .detail{color:var(--muted);font-size:13px;margin-top:3px;padding-left:96px}
+  .flag{color:var(--alert);font-weight:600}
+
+  .note{
+    border:1px solid var(--line);border-left:3px solid var(--deep);
+    background:#fff;border-radius:0 10px 10px 0;padding:16px 18px;color:var(--muted);
+  }
+  .note strong{color:var(--ink);display:block;margin-bottom:4px;font-weight:600}
+  a{color:var(--deep)}
+  @media (max-width:420px){ .detail{padding-left:0} }
+</style>
+</head>
+<body>
+<header>
+  <h1>Family Medical Records</h1>
+  <span class="who" id="who"></span>
+</header>
+
+<main>
+  <div class="people" id="people"></div>
+  <div id="content">
+    <div class="note"><strong>Loading</strong>Checking who you are.</div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let people = [], current = null;
+
+async function get(path) {
+  const res = await fetch(path, { credentials: 'same-origin' });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  return res.json();
+}
+
+function note(title, body) {
+  $('content').innerHTML = `<div class="note"><strong>${title}</strong>${body}</div>`;
+}
+
+async function boot() {
+  try {
+    const me = await get('/api/me');
+    $('who').textContent = me.email;
+
+    people = await get('/api/people');
+    if (!people.length) {
+      return note('No one added yet',
+        'The database is live and you are signed in as the owner. Adding family members comes with the next update.');
+    }
+
+    $('people').innerHTML = people.map((p, i) =>
+      `<button aria-pressed="${i === 0}" data-id="${p.person_id}">${p.name}</button>`).join('');
+    $('people').onclick = (e) => {
+      const b = e.target.closest('button');
+      if (b) select(b.dataset.id);
+    };
+    select(people[0].person_id);
+  } catch (err) {
+    note('Cannot load your records', err.message);
+  }
+}
+
+async function select(personId) {
+  current = personId;
+  [...$('people').children].forEach(b =>
+    b.setAttribute('aria-pressed', b.dataset.id === personId));
+  note('Loading', 'Fetching this person\u2019s history.');
+  try {
+    const { items } = await get(`/api/timeline?person=${encodeURIComponent(personId)}`);
+    if (!items.length) {
+      return note('Nothing recorded yet', 'Upload a report and it will appear here.');
+    }
+    $('content').innerHTML = '<ul>' + items.map(r => `
+      <li>
+        <div class="row">
+          <span class="date num">${r.date || ''}</span>
+          <span class="title">${esc(r.title)}</span>
+          <span class="val num ${r.flag && r.flag !== 'active' ? 'flag' : ''}">${esc(r.value || '')}</span>
+        </div>
+        ${r.detail ? `<div class="detail">${esc(r.detail)}</div>` : ''}
+      </li>`).join('') + '</ul>';
+  } catch (err) {
+    note('Cannot load history', err.message);
+  }
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+boot();
+</script>
+</body>
+</html>
