@@ -318,39 +318,28 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
 --  In Sheets these were whole rebuilt tabs. Here they cost nothing.
 -- ============================================================
 
--- Everything for one person on one timeline, ready to page through.
-CREATE VIEW IF NOT EXISTS v_timeline AS
-  SELECT person_id, 'record'   AS kind, record_id AS ref_id, event_date AS date,
-         record_type AS title, summary AS value,
-         TRIM(COALESCE(doctor,'')||' '||COALESCE(facility,'')) AS detail,
-         '' AS flag, care_event_id
-    FROM records WHERE deleted = 0
-  UNION ALL
-  SELECT person_id, 'test', result_id, test_date, parameter,
-         COALESCE(result_text,'')||' '||COALESCE(unit_raw,''),
-         COALESCE(panel,'')||' '||COALESCE(lab,''), COALESCE(flag,''), NULL
-    FROM test_results WHERE deleted = 0
-  UNION ALL
-  SELECT person_id, 'medicine', medicine_id, prescribed_on,
-         name||' '||COALESCE(strength,''),
-         COALESCE(dose,'')||' '||COALESCE(frequency,''),
-         COALESCE(instructions,''), status, NULL
-    FROM medicines WHERE deleted = 0
-  UNION ALL
-  SELECT person_id, 'diagnosis', diagnosis_id, noted_on, diagnosis,
-         COALESCE(status,''), COALESCE(notes,''), '', NULL
-    FROM diagnoses WHERE deleted = 0
-  UNION ALL
-  SELECT person_id, 'document', document_id, document_date,
-         COALESCE(document_type,'Document'), COALESCE(summary,''),
-         COALESCE(provider,''), '', NULL
-    FROM documents WHERE deleted = 0
-  UNION ALL
-  SELECT person_id, 'bill', bill_id, bill_date,
-         COALESCE(medicine_name, item, bill_type, 'Bill'),
-         CAST(COALESCE(bill_total, line_amount, 0) AS TEXT),
-         COALESCE(vendor,''), COALESCE(payment_status,''), NULL
-    FROM bills WHERE deleted = 0;
+-- Everything for one person on one timeline, in one indexed table.
+-- Written alongside each record rather than unioned at read time: D1 will not
+-- accept a six-way UNION, and a single indexed table pages faster anyway.
+CREATE TABLE IF NOT EXISTS timeline (
+  entry_id      TEXT PRIMARY KEY,
+  person_id     TEXT NOT NULL REFERENCES people(person_id) ON DELETE CASCADE,
+  kind          TEXT NOT NULL,     -- record | test | medicine | diagnosis | document | bill | followup
+  ref_id        TEXT NOT NULL,     -- row id in the source table
+  date          TEXT NOT NULL,
+  title         TEXT NOT NULL DEFAULT '',
+  value         TEXT NOT NULL DEFAULT '',
+  detail        TEXT NOT NULL DEFAULT '',
+  flag          TEXT NOT NULL DEFAULT '',
+  search_text   TEXT NOT NULL DEFAULT '',
+  care_event_id TEXT,
+  deleted       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_tl_person ON timeline(person_id, date DESC) WHERE deleted = 0;
+CREATE INDEX IF NOT EXISTS ix_tl_kind   ON timeline(person_id, kind, date DESC) WHERE deleted = 0;
+CREATE INDEX IF NOT EXISTS ix_tl_ref    ON timeline(ref_id);
+CREATE INDEX IF NOT EXISTS ix_tl_care   ON timeline(care_event_id);
+CREATE INDEX IF NOT EXISTS ix_tl_search ON timeline(person_id, search_text);
 
 -- The latest value of every test, with the previous one for direction.
 CREATE VIEW IF NOT EXISTS v_latest_tests AS
