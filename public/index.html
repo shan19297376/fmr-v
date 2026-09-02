@@ -4,448 +4,815 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Family Medical Records</title>
-<meta name="theme-color" content="#12414d">
+<meta name="theme-color" content="#0f3d49">
 <link rel="manifest" href="/manifest.json">
 <style>
-  :root{
-    --ink:#1a2429;
-    --muted:#63777f;
-    --line:#dde5e8;
-    --paper:#f7f9fa;
-    --deep:#12414d;
-    --alert:#a8433a;
-    --ok:#2f6f52;
-  }
-  *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
-  body{
-    margin:0;background:var(--paper);color:var(--ink);
-    font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    padding-bottom:env(safe-area-inset-bottom);
-  }
-  /* Lab values must line up column-to-column, so figures are tabular everywhere numbers appear. */
-  .num{font-variant-numeric:tabular-nums}
+:root{
+  --ink:#16232a; --muted:#5d7179; --faint:#8fa3aa;
+  --line:#dde5e8; --paper:#f6f8f9; --card:#fff;
+  --deep:#0f3d49; --deep-2:#1a5f70;
+  --alert:#a8433a; --ok:#2f6f52; --warn:#8a6321;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding-bottom:env(safe-area-inset-bottom)}
+.num{font-variant-numeric:tabular-nums}
+button{font:inherit}
 
-  header{
-    background:var(--deep);color:#fff;
-    padding:calc(14px + env(safe-area-inset-top)) 20px 14px;
-    display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
-  }
-  header h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
-  header .who{margin-left:auto;font-size:13px;color:#a9c6ce}
+header{background:var(--deep);color:#fff;position:sticky;top:0;z-index:20}
+.hrow{display:flex;align-items:center;gap:12px;max-width:860px;margin:0 auto;
+  padding:calc(11px + env(safe-area-inset-top)) 18px 11px}
+.hrow h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em}
+.hrow .who{margin-left:auto;font-size:12px;color:#9dc0c9;max-width:44%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.people{display:flex;gap:7px;overflow-x:auto;max-width:860px;margin:0 auto;
+  padding:0 18px 11px;scrollbar-width:none}
+.people::-webkit-scrollbar{display:none}
+.people button{flex:0 0 auto;border:1px solid rgba(255,255,255,.28);background:transparent;
+  color:#cfe2e7;padding:6px 14px;border-radius:999px;font-size:14px;cursor:pointer}
+.people button[aria-pressed=true]{background:#fff;border-color:#fff;color:var(--deep);font-weight:600}
+.people button.new{border-style:dashed;color:#9dc0c9}
 
-  main{max-width:720px;margin:0 auto;padding:20px}
+nav{background:var(--deep-2);overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+.navin{display:flex;gap:2px;max-width:860px;margin:0 auto;padding:0 12px}
+nav button{flex:0 0 auto;background:transparent;border:0;border-bottom:2px solid transparent;
+  color:#b8d3da;padding:11px 13px;font-size:14px;cursor:pointer}
+nav button[aria-selected=true]{color:#fff;border-bottom-color:#fff;font-weight:600}
 
-  .people{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:20px}
-  .people button{
-    flex:0 0 auto;border:1px solid var(--line);background:#fff;color:var(--ink);
-    padding:9px 16px;border-radius:999px;font-size:15px;cursor:pointer;
-  }
-  .people button[aria-pressed="true"]{background:var(--deep);border-color:var(--deep);color:#fff}
+main{max-width:860px;margin:0 auto;padding:20px 18px 60px}
 
-  ul{list-style:none;margin:0;padding:0}
-  li{
-    background:#fff;border:1px solid var(--line);border-radius:10px;
-    padding:13px 15px;margin-bottom:8px;
-  }
-  .row{display:flex;gap:12px;align-items:baseline}
-  .row .date{color:var(--muted);font-size:13px;flex:0 0 84px}
-  .row .title{font-weight:600}
-  .row .val{margin-left:auto;text-align:right}
-  .detail{color:var(--muted);font-size:13px;margin-top:3px;padding-left:96px}
-  .flag{color:var(--alert);font-weight:600}
+/* A left rule marks a section, rather than wrapping everything in cards. */
+section{margin-bottom:26px}
+section > h2{font-size:13px;font-weight:600;color:var(--deep);margin:0 0 10px;
+  padding-left:10px;border-left:3px solid var(--deep)}
+.sub{color:var(--muted);font-size:13px;margin:-4px 0 12px 13px}
 
-  .note{
-    border:1px solid var(--line);border-left:3px solid var(--deep);
-    background:#fff;border-radius:0 10px 10px 0;padding:16px 18px;color:var(--muted);
-  }
-  .note strong{color:var(--ink);display:block;margin-bottom:4px;font-weight:600}
-  a{color:var(--deep)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:15px 17px}
+.rowlist{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.r{display:flex;gap:11px;align-items:baseline;padding:11px 15px;
+  border-top:1px solid var(--line);cursor:pointer;flex-wrap:wrap}
+.r:first-child{border-top:0}
+.r:hover{background:#fbfdfd}
+.r .d{color:var(--muted);font-size:12.5px;flex:0 0 82px}
+.r .t{font-weight:600;font-size:14.5px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.r .v{margin-left:auto;text-align:right;font-size:14px}
+.r .x{flex-basis:100%;color:var(--muted);font-size:12.5px;margin-top:2px;padding-left:93px}
+.r.bad .v{color:var(--alert);font-weight:600}
+.kind{font-size:10.5px;color:var(--faint);border:1px solid var(--line);
+  border-radius:4px;padding:1px 5px;flex:0 0 auto}
+@media (max-width:480px){ .r .x{padding-left:0} .r .d{flex-basis:72px} }
 
-  .bar{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 0;padding-top:18px;border-top:1px solid var(--line)}
-  .bar button{
-    border:1px solid var(--line);background:#fff;color:var(--deep);
-    padding:9px 15px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:500;
-  }
-  .bar button:hover{border-color:var(--deep)}
-  .bar button:disabled{opacity:.55;cursor:default}
-  .bar .add{background:var(--deep);border-color:var(--deep);color:#fff}
-  .status{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px}
+.empty{color:var(--muted);font-size:14px;padding:18px 15px;background:var(--card);
+  border:1px dashed var(--line);border-radius:10px}
 
-  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:14px}
-  .card h2{margin:0 0 10px;font-size:15px;font-weight:600}
-  .field{display:flex;gap:10px;align-items:center;margin-bottom:9px;flex-wrap:wrap}
-  .field label{font-size:13px;color:var(--muted);flex:0 0 92px}
-  input[type=date],input[type=text],textarea{
-    border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:inherit;
-    font-size:14px;color:var(--ink);background:#fff;flex:1;min-width:150px;
-  }
-  textarea{min-height:64px;resize:vertical;line-height:1.45}
-  input[type=file]{font-size:13px;flex:1;min-width:180px}
-  .go{background:var(--deep);color:#fff;border:1px solid var(--deep);padding:9px 18px;
-      border-radius:8px;font-size:14px;cursor:pointer;font-weight:500}
-  .go:disabled{opacity:.55;cursor:default}
-  .ghost{background:#fff;border:1px solid var(--line);color:var(--muted);padding:9px 16px;
-         border-radius:8px;font-size:14px;cursor:pointer}
+.facts{width:100%;border-collapse:collapse;background:var(--card);
+  border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.facts td{padding:9px 13px;border-top:1px solid var(--line);font-size:14px;vertical-align:top}
+.facts tr:first-child td{border-top:0}
+.facts .k{color:var(--muted);width:38%;font-size:13px}
+.facts .hi{color:var(--alert);font-weight:600}
 
-  .job{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
-  .job:first-of-type{border-top:0}
-  .job .name{font-weight:600;font-size:14px}
-  .job .st{margin-left:auto;font-size:12px;color:var(--muted)}
-  .job .st.err{color:var(--alert)}
-  .job .st.rdy{color:var(--ok);font-weight:600}
+.field{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.field label{font-size:13px;color:var(--muted);flex:0 0 108px}
+input,textarea,select{border:1px solid var(--line);border-radius:7px;padding:9px 11px;
+  font:inherit;font-size:14px;color:var(--ink);background:#fff;flex:1;min-width:130px}
+textarea{min-height:66px;resize:vertical}
+input[type=file]{padding:7px;font-size:13px}
+.go{background:var(--deep);color:#fff;border:1px solid var(--deep);padding:9px 18px;
+  border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;flex:0 0 auto}
+.go:disabled{opacity:.5;cursor:default}
+.ghost{background:#fff;border:1px solid var(--line);color:var(--deep);padding:8px 14px;
+  border-radius:8px;cursor:pointer;font-size:13.5px;flex:0 0 auto}
+.ghost:hover{border-color:var(--deep)}
+.ghost.danger{color:var(--alert)}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+.chips button{background:#fff;border:1px solid var(--line);color:var(--muted);
+  padding:6px 13px;border-radius:999px;font-size:13px;cursor:pointer}
+.chips button[aria-pressed=true]{background:var(--deep);border-color:var(--deep);color:#fff}
+.status{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px}
+.status.err{color:var(--alert)}
+.status.ok{color:var(--ok)}
+.warnbox{background:#fdf6ec;border:1px solid #eddcc2;border-radius:8px;
+  padding:10px 13px;font-size:13px;color:var(--warn);margin-bottom:12px}
 
-  .counts{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:10px 0}
-  .counts b{color:var(--ink)}
-  .warn{background:#fdf4ec;border:1px solid #f0d9c0;border-radius:8px;padding:10px 12px;
-        font-size:13px;color:#7a4a1e;margin:10px 0}
-  .peek{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:10px 0}
-  .peek table{width:100%;border-collapse:collapse;font-size:13px}
-  .peek td{padding:5px 9px;border-bottom:1px solid var(--line)}
-  .peek tr:last-child td{border-bottom:0}
-  .peek .v{text-align:right;font-variant-numeric:tabular-nums}
-  .peek .ab{color:var(--alert);font-weight:600}
-  @media (max-width:420px){ .detail{padding-left:0} }
+/* The chart is the one place this app raises its voice. */
+.chart{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.band{fill:#2f6f52;opacity:.09}
+.gridline{stroke:var(--line);stroke-width:1}
+.axis{fill:var(--faint);font-size:10px}
+.line{fill:none;stroke:var(--deep);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.dot{fill:var(--deep)}
+.dot.bad{fill:var(--alert)}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:2px;
+  vertical-align:-1px;margin-right:5px}
+
+.veil{position:fixed;inset:0;background:rgba(16,35,42,.45);z-index:50;
+  display:flex;align-items:flex-end;justify-content:center}
+.modal{background:#fff;border-radius:14px 14px 0 0;padding:20px;width:100%;
+  max-width:560px;max-height:88vh;overflow:auto}
+.modal h3{margin:0 0 12px;font-size:16px}
+@media (min-width:600px){ .veil{align-items:center;padding:20px} .modal{border-radius:14px} }
 </style>
 </head>
 <body>
+
 <header>
-  <h1>Family Medical Records</h1>
-  <span class="who" id="who"></span>
+  <div class="hrow">
+    <h1>Family Medical Records</h1>
+    <span class="who" id="who"></span>
+  </div>
+  <div class="people" id="people"></div>
 </header>
 
-<main>
-  <div class="people" id="people"></div>
-  <div id="content">
-    <div class="note"><strong>Loading</strong>Checking who you are.</div>
-  </div>
+<nav><div class="navin" id="nav"></div></nav>
 
-  <div class="card" id="uploadCard" hidden>
-    <h2>Add a report</h2>
-    <div class="field">
-      <label for="upDate">Date on it</label>
-      <input type="date" id="upDate">
-    </div>
-    <div class="field">
-      <label for="upFiles">Scans</label>
-      <input type="file" id="upFiles" multiple accept="application/pdf,image/*">
-    </div>
-    <div class="field">
-      <label></label>
-      <button class="go" id="upGo">Upload and read</button>
-    </div>
-    <div class="status" id="upStatus"></div>
-  </div>
-
-  <div class="card" id="inboxCard" hidden>
-    <h2>Being read</h2>
-    <div id="inbox"></div>
-  </div>
-
-  <div class="card" id="reviewCard" hidden></div>
-
-  <div class="bar" id="bar" hidden>
-    <button class="add" id="addPerson">Add a person</button>
-    <button id="dlWorkbook">Download spreadsheet</button>
-    <button id="dlDocuments">Download scans</button>
-  </div>
-  <div class="status" id="status"></div>
-</main>
+<main id="main"><div class="empty">Loading.</div></main>
+<div id="modalHost"></div>
 
 <script>
+/* ==================================================================
+   Dates are stored ISO because that is what sorts correctly in SQL,
+   and shown dd-mmm-yyyy because 03-11-2026 is ambiguous in India.
+   fmt() is the only place that decision is made on this side.
+   ================================================================== */
+
 const $ = (id) => document.getElementById(id);
-let people = [], current = null;
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
+  (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
-async function get(path) {
-  const res = await fetch(path, { credentials: 'same-origin' });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
-  return res.json();
-}
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmt = (iso) => {
+  const m = String(iso ?? '').slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? m[3] + '-' + MONTHS[+m[2]-1] + '-' + m[1] : (iso || '');
+};
+const rel = (iso) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso ?? '').slice(0,10))) return '';
+  const d = Math.round((Date.parse(iso) - Date.parse(new Date().toISOString().slice(0,10))) / 864e5);
+  if (d === 0) return 'today';
+  const n = Math.abs(d);
+  const u = n === 1 ? '1 day' : n < 31 ? n + ' days'
+    : n < 365 ? Math.round(n/30) + ' months' : (n/365).toFixed(1) + ' years';
+  return d > 0 ? 'in ' + u : u + ' ago';
+};
 
-function note(title, body) {
-  $('content').innerHTML = `<div class="note"><strong>${title}</strong>${body}</div>`;
+let me = null, people = [], current = null, tab = 'overview';
+
+async function api(path, opts) {
+  const res = await fetch(path, { credentials:'same-origin', ...opts });
+  const ct = res.headers.get('Content-Type') || '';
+  const body = ct.includes('json') ? await res.json() : await res.text();
+  if (!res.ok) throw new Error((body && body.error) || res.statusText);
+  return body;
 }
+const post = (p,b) => api(p, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b) });
+const put  = (p,b) => api(p, { method:'PUT',  headers:{'Content-Type':'application/json'}, body:JSON.stringify(b) });
+const setStatus = (id, text, cls) => {
+  const el = $(id); if (!el) return;
+  el.className = 'status' + (cls ? ' ' + cls : ''); el.textContent = text;
+};
+
+/* ---------- shell -------------------------------------------------- */
+
+const TABS = [['overview','Overview'],['timeline','History'],['trends','Trends'],
+  ['events','Episodes'],['add','Add'],['settings','Settings']];
 
 async function boot() {
   try {
-    const me = await get('/api/me');
+    me = await api('/api/me');
     $('who').textContent = me.email;
-
-    $('bar').hidden = false;
-    $('uploadCard').hidden = false;
-    $('upDate').value = me.today;
+    $('nav').innerHTML = TABS.map(([id,l]) =>
+      '<button data-tab="'+id+'" aria-selected="'+(id===tab)+'">'+l+'</button>').join('');
+    $('nav').onclick = (e) => {
+      const b = e.target.closest('[data-tab]');
+      if (!b) return;
+      tab = b.dataset.tab;
+      [...$('nav').children].forEach(x => x.setAttribute('aria-selected', x.dataset.tab === tab));
+      render();
+    };
     await loadPeople();
-    pollInbox();
-
   } catch (err) {
-    note('Cannot load your records', err.message);
+    $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
   }
 }
 
 async function loadPeople() {
-  people = await get('/api/people');
-  if (!people.length) {
-    $('people').innerHTML = '';
-    return note('No one added yet', 'Add the first family member to start filing records.');
-  }
-  $('people').innerHTML = people.map((p, i) =>
-    `<button aria-pressed="${i === 0}" data-id="${p.person_id}">${esc(p.name)}</button>`).join('');
+  people = await api('/api/people');
+  if (!current && people.length) current = people[0].person_id;
+  $('people').innerHTML = people.map(p =>
+    '<button data-id="'+p.person_id+'" aria-pressed="'+(p.person_id===current)+'">'+esc(p.name)+'</button>'
+  ).join('') + '<button class="new" data-add="1">+ Add person</button>';
   $('people').onclick = (e) => {
-    const b = e.target.closest('button');
-    if (b) select(b.dataset.id);
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.add) return addPerson();
+    current = b.dataset.id;
+    [...$('people').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.id === current));
+    render();
   };
-  select(people[0].person_id);
+  render();
 }
 
-$('addPerson').onclick = async () => {
+async function addPerson() {
   const name = prompt('Name of the family member');
   if (!name) return;
-  try {
-    const res = await fetch('/api/people', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || 'Could not add that person.');
-    $('status').textContent = `${body.name} added.`;
-    await loadPeople();
-  } catch (err) {
-    $('status').textContent = err.message;
-  }
-};
-
-/**
- * Downloads go through fetch rather than a plain link so an error arrives as a
- * readable message instead of a browser saving a file full of JSON.
- */
-async function download(path, button, label) {
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Preparing\u2026';
-  $('status').textContent = '';
-  try {
-    const res = await fetch(path, { credentials: 'same-origin' });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed.');
-
-    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || label;
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-
-    const included = res.headers.get('X-Documents-Included');
-    const total = res.headers.get('X-Documents-Total');
-    $('status').textContent = included
-      ? `Saved ${name} \u2014 ${included} of ${total} documents.`
-      : `Saved ${name}.`;
-  } catch (err) {
-    $('status').textContent = err.message;
-  } finally {
-    button.disabled = false;
-    button.textContent = original;
-  }
+  try { const r = await post('/api/people', { name }); current = r.personId; await loadPeople(); }
+  catch (err) { alert(err.message); }
 }
 
-$('dlWorkbook').onclick = (e) => download('/api/export/workbook', e.target, 'records.xlsx');
-$('dlDocuments').onclick = (e) => download('/api/export/documents', e.target, 'documents.zip');
+const person = () => people.find(p => p.person_id === current) || {};
 
-/* ---------- Upload ------------------------------------------------- */
-/* Each file is posted, stored and queued on its own. The button frees up as
-   soon as the last one is handed off, so nothing waits on the reading. */
+function render() {
+  if (!people.length) {
+    $('main').innerHTML = '<div class="empty">No one has been added yet. Use <b>+ Add person</b> above to start.</div>';
+    return;
+  }
+  const fn = { overview:viewOverview, timeline:viewTimeline, trends:viewTrends,
+               events:viewEvents, add:viewAdd, settings:viewSettings }[tab] || viewOverview;
+  fn().catch(err => { $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
+}
 
-$('upGo').onclick = async () => {
-  const files = [...$('upFiles').files];
-  if (!current) return ($('upStatus').textContent = 'Pick a person first.');
-  if (!files.length) return ($('upStatus').textContent = 'Choose at least one scan.');
+/* ---------- overview ----------------------------------------------- */
 
-  const btn = $('upGo');
-  btn.disabled = true;
+async function viewOverview() {
+  $('main').innerHTML = '<div class="empty">Loading.</div>';
+  const [snap, dash, profile] = await Promise.all([
+    api('/api/snapshot?person=' + current),
+    api('/api/dashboard'),
+    api('/api/profile?person=' + current),
+  ]);
+
+  const mine = (l) => l.filter(x => x.person === person().name);
+  const overdue = mine(dash.overdue), upcoming = mine(dash.upcoming);
+
+  const fu = (list, bad) => list.map(f =>
+    '<div class="r ' + (bad?'bad':'') + '"><span class="d num">' + fmt(f.due_date) + '</span>' +
+    '<span class="t">' + esc(f.instruction || f.type) + '</span>' +
+    '<span class="v">' + esc(rel(f.due_date)) + '</span>' +
+    '<button class="ghost" data-done="' + f.follow_up_id + '">Done</button></div>').join('');
+
+  const meds = snap.activeMedicines.map(m =>
+    '<div class="r"><span class="d num">' + fmt(m.prescribed_on) + '</span>' +
+    '<span class="t">' + esc([m.name, m.strength].filter(Boolean).join(' ')) + '</span>' +
+    '<span class="v">' + esc([m.dose, m.frequency].filter(Boolean).join(' ')) + '</span>' +
+    (m.end_date ? '' : '<span class="kind">no end date</span>') + '</div>').join('');
+
+  const abnormal = snap.abnormalTests.map(t =>
+    '<div class="r bad"><span class="d num">' + fmt(t.test_date) + '</span>' +
+    '<span class="t">' + esc(t.parameter) + '</span>' +
+    '<span class="v num">' + esc([t.result_text, t.unit].filter(Boolean).join(' ')) + '</span></div>').join('');
+
+  $('main').innerHTML =
+    '<section><h2>' + esc(person().name) + '</h2><table class="facts">' +
+      '<tr><td class="k">Blood group</td><td>' + esc(profile.blood_group || '\u2014') + '</td></tr>' +
+      '<tr><td class="k">Allergies</td><td class="' + (profile.allergies?'hi':'') + '">' + esc(profile.allergies || 'None recorded') + '</td></tr>' +
+      '<tr><td class="k">Ongoing conditions</td><td>' + esc(profile.chronic_conditions || 'None recorded') + '</td></tr>' +
+      '<tr><td class="k">Last seen</td><td>' + (snap.lastVisit ? esc(fmt(snap.lastVisit.event_date) + ' \u00b7 ' + (snap.lastVisit.record_type||'')) : '\u2014') + '</td></tr>' +
+    '</table></section>' +
+    (overdue.length ? '<section><h2>Overdue</h2><div class="rowlist">' + fu(overdue,true) + '</div></section>' : '') +
+    (upcoming.length ? '<section><h2>Coming up</h2><div class="rowlist">' + fu(upcoming,false) + '</div></section>' : '') +
+    (abnormal ? '<section><h2>Out of range</h2><div class="sub">The most recent value for each test that sits outside its range.</div><div class="rowlist">' + abnormal + '</div></section>' : '') +
+    (meds ? '<section><h2>Current medicines</h2><div class="rowlist">' + meds + '</div></section>' : '') +
+    '<section><h2>Doctor handout</h2><div class="sub">One page with conditions, medicines, latest results and open follow-ups.</div>' +
+      '<div class="field"><button class="ghost" id="openHandout">Open and print</button>' +
+      '<button class="ghost" id="shareHandout">Create a 24-hour link</button></div>' +
+      '<div class="status" id="hStatus"></div></section>';
+
+  $('main').onclick = async (e) => {
+    const d = e.target.closest('[data-done]');
+    if (!d) return;
+    await post('/api/records/followup/' + d.dataset.done + '/complete', {});
+    render();
+  };
+  $('openHandout').onclick = () => window.open('/api/handout?person=' + current, '_blank');
+  $('shareHandout').onclick = async () => {
+    try {
+      const r = await post('/api/handout/share', { person: current, hours: 24 });
+      await navigator.clipboard.writeText(r.url).catch(() => {});
+      setStatus('hStatus', 'Link copied, works for ' + r.hours + ' hours: ' + r.url, 'ok');
+    } catch (err) { setStatus('hStatus', err.message, 'err'); }
+  };
+}
+
+/* ---------- history ------------------------------------------------ */
+
+const KINDS = [['all','Everything'],['test','Tests'],['medicine','Medicines'],['record','Visits'],
+  ['document','Documents'],['diagnosis','Diagnoses'],['followup','Follow-ups'],['bill','Bills']];
+let kind = 'all', page = 0, query = '';
+
+async function viewTimeline() {
+  $('main').innerHTML =
+    '<section><div class="field"><input type="text" id="q" placeholder="Search this person\u2019s records" value="' + esc(query) + '"></div>' +
+    '<div class="chips" id="kinds">' + KINDS.map(([k,l]) =>
+      '<button data-k="'+k+'" aria-pressed="'+(k===kind)+'">'+l+'</button>').join('') + '</div>' +
+    '<div id="rows"><div class="empty">Loading.</div></div>' +
+    '<div class="field" style="margin-top:12px"><button class="ghost" id="more" hidden>Show more</button></div></section>';
+
+  $('kinds').onclick = (e) => {
+    const b = e.target.closest('[data-k]');
+    if (b) { kind = b.dataset.k; page = 0; viewTimeline(); }
+  };
+  let t;
+  $('q').oninput = (e) => {
+    clearTimeout(t);
+    t = setTimeout(() => { query = e.target.value.trim(); page = 0; loadRows(true); }, 300);
+  };
+  await loadRows(true);
+}
+
+async function loadRows(reset) {
+  const data = query
+    ? await api('/api/search?person=' + current + '&q=' + encodeURIComponent(query))
+    : await api('/api/timeline?person=' + current + '&kind=' + kind + '&page=' + page);
+  const items = data.items || [];
+
+  const html = items.map(r =>
+    '<div class="r ' + (r.flag && r.flag !== 'active' && r.flag !== 'pending' ? 'bad' : '') +
+    '" data-ref="' + r.ref_id + '" data-kind="' + r.kind + '">' +
+    '<span class="d num">' + fmt(r.date) + '</span>' +
+    '<span class="kind">' + esc(r.kind) + '</span>' +
+    '<span class="t">' + esc(r.title) + '</span>' +
+    '<span class="v num">' + esc(r.value || '') + '</span>' +
+    (r.detail ? '<span class="x">' + esc(r.detail) + '</span>' : '') + '</div>').join('');
+
+  const box = $('rows');
+  if (reset) box.innerHTML = html || '<div class="empty">Nothing here yet.</div>';
+  else box.insertAdjacentHTML('beforeend', html);
+
+  if ($('more')) {
+    $('more').hidden = !data.hasMore;
+    $('more').onclick = () => { page++; loadRows(false); };
+  }
+  box.onclick = (e) => {
+    const r = e.target.closest('[data-ref]');
+    if (r) openRecord(r.dataset.kind, r.dataset.ref);
+  };
+}
+
+/* ---------- edit --------------------------------------------------- */
+
+function modal(html) {
+  $('modalHost').innerHTML = '<div class="veil" id="veil"><div class="modal">' + html + '</div></div>';
+  $('veil').onclick = (e) => { if (e.target.id === 'veil') closeModal(); };
+}
+function closeModal() { $('modalHost').innerHTML = ''; }
+
+async function openRecord(kind, id) {
+  if (kind === 'document') { window.open('/api/documents/' + id + '/file', '_blank'); return; }
   try {
-    const res = await fetch('/api/uploads', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ person: current, date: $('upDate').value }),
-    });
-    const { jobId, error } = await res.json();
-    if (!res.ok) throw new Error(error || 'Could not start the upload.');
+    const rec = await api('/api/records/' + kind + '/' + id);
+    modal('<h3>Edit this ' + esc(kind) + '</h3>' +
+      rec.fields.map(f =>
+        '<div class="field"><label for="f_' + f.name + '">' + esc(f.label) + '</label>' +
+        (f.type === 'textarea'
+          ? '<textarea id="f_' + f.name + '">' + esc(f.value) + '</textarea>'
+          : '<input type="' + (f.type === 'date' ? 'date' : 'text') + '" id="f_' + f.name + '" value="' + esc(f.value) + '">') +
+        '</div>').join('') +
+      '<div class="field"><label for="f_reason">Why</label>' +
+      '<input type="text" id="f_reason" placeholder="e.g. the lab printed the wrong date"></div>' +
+      '<div class="field"><button class="go" id="saveEdit">Save change</button>' +
+      '<button class="ghost" id="cancelEdit">Cancel</button>' +
+      '<button class="ghost danger" id="delRec" style="margin-left:auto">Delete</button></div>' +
+      '<div class="status" id="editStatus"></div>');
 
-    for (const [i, file] of files.entries()) {
-      $('upStatus').textContent = `Sending ${i + 1} of ${files.length}\u2026`;
-      const form = new FormData();
-      form.append('file', file);
-      const up = await fetch(`/api/uploads/${jobId}/file`, {
-        method: 'POST', credentials: 'same-origin', body: form,
-      });
-      const body = await up.json();
-      if (up.status === 409 && body.duplicate) {
-        $('upStatus').textContent = `${file.name} is already filed \u2014 skipped.`;
+    $('cancelEdit').onclick = closeModal;
+    $('saveEdit').onclick = async () => {
+      const values = {};
+      rec.fields.forEach(f => { values[f.name] = $('f_' + f.name).value; });
+      try {
+        await put('/api/records/' + kind + '/' + id, { values, reason: $('f_reason').value });
+        closeModal(); render();
+      } catch (err) { setStatus('editStatus', err.message, 'err'); }
+    };
+    $('delRec').onclick = async () => {
+      if (!confirm('Delete this? It stays in the audit trail but leaves your records.')) return;
+      try { await api('/api/records/' + kind + '/' + id, { method:'DELETE' }); closeModal(); render(); }
+      catch (err) { setStatus('editStatus', err.message, 'err'); }
+    };
+  } catch (err) { alert(err.message); }
+}
+
+/* ---------- trends -------------------------------------------------- */
+
+let param = null, range = '';
+
+async function viewTrends() {
+  const list = await api('/api/trends?person=' + current);
+  if (!list.length) {
+    $('main').innerHTML = '<div class="empty">No test results yet. Upload a lab report and its values appear here.</div>';
+    return;
+  }
+  if (!param || !list.some(p => p.parameter === param)) param = list[0].parameter;
+
+  $('main').innerHTML =
+    '<section><div class="field"><label for="pick">Test</label><select id="pick">' +
+    list.map(p => '<option value="' + esc(p.parameter) + '"' + (p.parameter===param?' selected':'') + '>' +
+      esc(p.parameter) + ' (' + p.total + ')' + (p.flagged ? ' \u2022' : '') + '</option>').join('') +
+    '</select></div><div class="chips" id="ranges">' +
+    [['','All'],['3m','3 months'],['6m','6 months'],['1y','1 year'],['3y','3 years']]
+      .map(([v,l]) => '<button data-r="'+v+'" aria-pressed="'+(v===range)+'">'+l+'</button>').join('') +
+    '</div><div id="chartBox"><div class="empty">Loading.</div></div></section>';
+
+  $('pick').onchange = (e) => { param = e.target.value; drawTrend(); };
+  $('ranges').onclick = (e) => {
+    const b = e.target.closest('[data-r]');
+    if (b) { range = b.dataset.r; viewTrends(); }
+  };
+  await drawTrend();
+}
+
+async function drawTrend() {
+  const d = await api('/api/trends/series?person=' + current +
+    '&parameter=' + encodeURIComponent(param) + '&range=' + range);
+  const pts = d.points.filter(p => p.value_a !== null);
+
+  if (!pts.length) {
+    $('chartBox').innerHTML = '<div class="empty">No numeric results for ' + esc(param) +
+      ' in this period. ' + (d.points.length
+        ? 'The values recorded are text, or in a unit the app has not been taught yet.' : '') + '</div>';
+    return;
+  }
+
+  const low = pts[0].ref_low ?? (d.band ? d.band.low : null);
+  const high = pts[0].ref_high ?? (d.band ? d.band.high : null);
+
+  const W = 800, H = 260, L = 46, R = 14, T = 14, B = 30;
+  const xs = pts.map(p => Date.parse(p.test_date));
+  const ys = pts.map(p => p.value_a);
+  const lo = Math.min.apply(null, ys.concat(low !== null ? [low] : []));
+  const hi = Math.max.apply(null, ys.concat(high !== null ? [high] : []));
+  const pad = (hi - lo) * 0.15 || Math.abs(hi * 0.1) || 1;
+  const y0 = lo - pad, y1 = hi + pad;
+  const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+
+  const px = (v) => L + (x1 === x0 ? (W-L-R)/2 : ((v-x0)/(x1-x0)) * (W-L-R));
+  const py = (v) => T + (1 - (v-y0)/(y1-y0)) * (H-T-B);
+
+  const band = (low !== null || high !== null)
+    ? '<rect class="band" x="' + L + '" y="' + py(high ?? y1).toFixed(1) + '" width="' + (W-L-R) +
+      '" height="' + Math.max(2, py(low ?? y0) - py(high ?? y1)).toFixed(1) + '" rx="3"/>' : '';
+
+  const ticks = [y0, (y0+y1)/2, y1].map(v =>
+    '<line class="gridline" x1="'+L+'" y1="'+py(v).toFixed(1)+'" x2="'+(W-R)+'" y2="'+py(v).toFixed(1)+'"/>' +
+    '<text class="axis" x="'+(L-7)+'" y="'+(py(v)+3).toFixed(1)+'" text-anchor="end">' +
+      (+v).toFixed(Math.abs(v) < 10 ? 1 : 0) + '</text>').join('');
+
+  const path = pts.map((p,i) =>
+    (i?'L':'M') + px(Date.parse(p.test_date)).toFixed(1) + ',' + py(p.value_a).toFixed(1)).join('');
+
+  const dots = pts.map(p =>
+    '<circle class="dot ' + (p.is_abnormal?'bad':'') + '" cx="' + px(Date.parse(p.test_date)).toFixed(1) +
+    '" cy="' + py(p.value_a).toFixed(1) + '" r="4"><title>' + esc(fmt(p.test_date)) + ': ' +
+    esc(p.result_text) + ' ' + esc(p.unit || '') + '</title></circle>').join('');
+
+  const first = pts[0], last = pts[pts.length-1];
+  const change = pts.length > 1 ? last.value_a - first.value_a : null;
+
+  $('chartBox').innerHTML =
+    '<div class="chart"><svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(param)+' over time">' +
+      band + ticks + '<path class="line" d="'+path+'"/>' + dots +
+      '<text class="axis" x="'+L+'" y="'+(H-8)+'">'+esc(fmt(first.test_date))+'</text>' +
+      '<text class="axis" x="'+(W-R)+'" y="'+(H-8)+'" text-anchor="end">'+esc(fmt(last.test_date))+'</text>' +
+    '</svg><div class="legend">' +
+      '<span><span class="swatch" style="background:#2f6f52;opacity:.3"></span>Normal range' +
+        (low !== null || high !== null ? ' ' + (low ?? '') + '\u2013' + (high ?? '') : '') + '</span>' +
+      '<span><span class="swatch" style="background:var(--alert)"></span>Out of range</span>' +
+      (change !== null ? '<span>' + (change > 0 ? '+' : '') + change.toFixed(2) + ' ' +
+        esc(last.unit || '') + ' since ' + esc(fmt(first.test_date)) + '</span>' : '') +
+    '</div></div>' +
+    '<div class="rowlist" style="margin-top:14px">' +
+      d.points.slice().reverse().map(p =>
+        '<div class="r ' + (p.is_abnormal?'bad':'') + '"><span class="d num">' + fmt(p.test_date) + '</span>' +
+        '<span class="t num">' + esc(p.result_text) + ' ' + esc(p.unit || '') + '</span>' +
+        '<span class="v">' + esc(p.ref_range_text || '') + '</span>' +
+        (p.lab ? '<span class="x">' + esc(p.lab) + '</span>' : '') + '</div>').join('') +
+    '</div>';
+}
+
+/* ---------- episodes -------------------------------------------------- */
+
+async function viewEvents() {
+  const list = await api('/api/events?person=' + current);
+  $('main').innerHTML =
+    '<section><h2>Episodes of care</h2>' +
+    '<div class="sub">Group an admission, an illness or a course of treatment so its reports, prescriptions and bills sit together.</div>' +
+    '<div class="field"><button class="ghost" id="newEvent">New episode</button></div>' +
+    (list.length ? '<div class="rowlist">' + list.map(e =>
+      '<div class="r" data-ev="' + e.care_event_id + '"><span class="d num">' + fmt(e.event_date) + '</span>' +
+      '<span class="t">' + esc(e.title) + '</span>' +
+      '<span class="v">' + e.items + ' item' + (e.items===1?'':'s') + '</span>' +
+      (e.facility ? '<span class="x">' + esc(e.facility) + '</span>' : '') + '</div>').join('') + '</div>'
+      : '<div class="empty">No episodes yet.</div>') + '</section>';
+
+  $('newEvent').onclick = () => {
+    modal('<h3>New episode</h3>' +
+      '<div class="field"><label for="evDate">Started</label><input type="date" id="evDate" value="'+me.today+'"></div>' +
+      '<div class="field"><label for="evTitle">What happened</label><input type="text" id="evTitle" placeholder="e.g. Dengue, June 2026"></div>' +
+      '<div class="field"><label for="evWhere">Hospital</label><input type="text" id="evWhere"></div>' +
+      '<div class="field"><button class="go" id="evSave">Create</button><button class="ghost" id="evCancel">Cancel</button></div>' +
+      '<div class="status" id="evStatus"></div>');
+    $('evCancel').onclick = closeModal;
+    $('evSave').onclick = async () => {
+      try {
+        await post('/api/events', { person: current, date: $('evDate').value,
+          title: $('evTitle').value, facility: $('evWhere').value });
+        closeModal(); viewEvents();
+      } catch (err) { setStatus('evStatus', err.message, 'err'); }
+    };
+  };
+
+  $('main').onclick = (e) => {
+    const r = e.target.closest('[data-ev]');
+    if (r) openEvent(r.dataset.ev);
+  };
+}
+
+async function openEvent(id) {
+  const d = await api('/api/events/' + id);
+  modal('<h3>' + esc(d.event.title) + '</h3>' +
+    '<div class="sub" style="margin-left:0">' + esc(fmt(d.event.event_date)) +
+      (d.event.facility ? ' \u00b7 ' + esc(d.event.facility) : '') + '</div>' +
+    (d.items.length ? '<div class="rowlist">' + d.items.map(i =>
+      '<div class="r"><span class="d num">' + fmt(i.date) + '</span>' +
+      '<span class="kind">' + esc(i.kind) + '</span>' +
+      '<span class="t">' + esc(i.title) + '</span>' +
+      '<span class="v num">' + esc(i.value || '') + '</span></div>').join('') + '</div>'
+      : '<div class="empty">Nothing filed under this yet. Pick this episode when you upload a report.</div>') +
+    '<div class="field" style="margin-top:14px"><button class="ghost" id="evClose">Close</button></div>');
+  $('evClose').onclick = closeModal;
+}
+
+/* ---------- add ------------------------------------------------------ */
+
+async function viewAdd() {
+  const events = await api('/api/events?person=' + current).catch(() => []);
+  const READINGS = ['Blood Pressure','Fasting Blood Sugar','Post Meal Blood Sugar',
+    'Random Blood Sugar','Pulse','SpO2','Temperature','Weight','Height'];
+
+  $('main').innerHTML =
+    '<section><h2>Upload a report</h2>' +
+    '<div class="sub">Reading happens in the background. Carry on using the app, or send the next one straight away.</div>' +
+    '<div class="panel">' +
+      '<div class="field"><label for="upDate">Date on it</label><input type="date" id="upDate" value="'+me.today+'"></div>' +
+      '<div class="field"><label for="upEvent">Episode</label><select id="upEvent"><option value="">Not part of one</option>' +
+        events.map(e => '<option value="'+e.care_event_id+'">'+esc(e.title)+'</option>').join('') + '</select></div>' +
+      '<div class="field"><label for="upFiles">Scans</label><input type="file" id="upFiles" multiple accept="application/pdf,image/*"></div>' +
+      '<div class="field"><label></label><button class="go" id="upGo">Upload and read</button></div>' +
+      '<div class="status" id="upStatus"></div></div></section>' +
+
+    '<section><h2>Record a reading</h2>' +
+    '<div class="sub">Blood pressure, sugar or weight taken at home, with no report to attach.</div>' +
+    '<div class="panel">' +
+      '<div class="field"><label for="mrDate">Taken on</label><input type="date" id="mrDate" value="'+me.today+'"></div>' +
+      '<div class="field"><label for="mrParam">What</label><select id="mrParam">' +
+        READINGS.map(p => '<option>'+p+'</option>').join('') + '</select></div>' +
+      '<div class="field"><label for="mrValue">Reading</label><input type="text" id="mrValue" placeholder="e.g. 128/84"></div>' +
+      '<div class="field"><label for="mrUnit">Unit</label><input type="text" id="mrUnit" placeholder="mmHg"></div>' +
+      '<div class="field"><label for="mrNote">Note</label><input type="text" id="mrNote" placeholder="optional"></div>' +
+      '<div class="field"><label></label><button class="go" id="mrGo">Save reading</button></div>' +
+      '<div class="status" id="mrStatus"></div></div></section>' +
+
+    '<section id="inboxSec" hidden><h2>Being read</h2><div class="rowlist" id="inbox"></div></section>' +
+    '<section id="reviewSec" hidden></section>';
+
+  $('upGo').onclick = doUpload;
+  $('mrGo').onclick = doReading;
+  pollInbox();
+}
+
+async function doUpload() {
+  const files = [...$('upFiles').files];
+  if (!files.length) return setStatus('upStatus', 'Choose at least one scan.', 'err');
+  $('upGo').disabled = true;
+  try {
+    const job = await post('/api/uploads', { person: current, date: $('upDate').value,
+      careEventId: $('upEvent').value || undefined });
+    for (let i = 0; i < files.length; i++) {
+      setStatus('upStatus', 'Sending ' + (i+1) + ' of ' + files.length + '\u2026');
+      const form = new FormData(); form.append('file', files[i]);
+      const res = await fetch('/api/uploads/' + job.jobId + '/file',
+        { method:'POST', credentials:'same-origin', body: form });
+      const body = await res.json();
+      if (res.status === 409 && body.duplicate) {
+        setStatus('upStatus', files[i].name + ' is already filed \u2014 skipped.');
         continue;
       }
-      if (!up.ok) throw new Error(body.error || `${file.name} could not be sent.`);
+      if (!res.ok) throw new Error(body.error || files[i].name + ' could not be sent.');
     }
-
     $('upFiles').value = '';
-    $('upStatus').textContent = 'Sent. Reading happens in the background \u2014 carry on using the app.';
+    setStatus('upStatus', 'Sent. Reading in the background.', 'ok');
     pollInbox();
-  } catch (err) {
-    $('upStatus').textContent = err.message;
-  } finally {
-    btn.disabled = false;
-  }
-};
+  } catch (err) { setStatus('upStatus', err.message, 'err'); }
+  finally { $('upGo').disabled = false; }
+}
 
-/* ---------- Inbox --------------------------------------------------- */
+async function doReading() {
+  try {
+    const r = await post('/api/records/reading', { person: current, date: $('mrDate').value,
+      parameter: $('mrParam').value, result: $('mrValue').value,
+      unit: $('mrUnit').value, notes: $('mrNote').value });
+    $('mrValue').value = '';
+    setStatus('mrStatus', 'Saved ' + r.parameter + (r.abnormal ? ' \u2014 outside the usual range' : '') + '.',
+      r.abnormal ? 'err' : 'ok');
+  } catch (err) { setStatus('mrStatus', err.message, 'err'); }
+}
 
 let pollTimer = null;
-
 async function pollInbox() {
   clearTimeout(pollTimer);
+  if (!$('inbox')) return;
   try {
-    const jobs = await get('/api/inbox');
-    $('inboxCard').hidden = jobs.length === 0;
-
-    const label = { queued: 'Waiting', reading: 'Reading\u2026', review: 'Ready to check', error: 'Failed' };
-    const cls = { review: 'rdy', error: 'err' };
-
-    $('inbox').innerHTML = jobs.map(j => `
-      <div class="job">
-        <span class="name">${esc(j.person)}</span>
-        <span style="font-size:13px;color:var(--muted)">${j.files} file(s)</span>
-        <span class="st ${cls[j.status] || ''}">${label[j.status] || j.status}</span>
-        ${j.status === 'review' ? `<button class="ghost" data-review="${j.job_id}">Check</button>` : ''}
-        ${j.status === 'error' ? `<button class="ghost" data-drop="${j.job_id}">Discard</button>` : ''}
-      </div>`).join('');
-
+    const jobs = await api('/api/inbox');
+    $('inboxSec').hidden = !jobs.length;
+    const label = { queued:'Waiting', reading:'Reading\u2026', review:'Ready to check', error:'Failed' };
+    $('inbox').innerHTML = jobs.map(j =>
+      '<div class="r ' + (j.status==='error'?'bad':'') + '">' +
+      '<span class="t">' + esc(j.person) + '</span>' +
+      '<span class="kind">' + j.files + ' file' + (j.files===1?'':'s') + '</span>' +
+      '<span class="v">' + (label[j.status] || j.status) + '</span>' +
+      (j.status==='review' ? '<button class="ghost" data-review="'+j.job_id+'">Check</button>' : '') +
+      (j.status==='error' ? '<button class="ghost danger" data-drop="'+j.job_id+'">Discard</button>' : '') +
+      (j.status==='error' && j.message ? '<span class="x">' + esc(j.message) + '</span>' : '') +
+      '</div>').join('');
     $('inbox').onclick = (e) => {
-      const r = e.target.closest('[data-review]');
-      const d = e.target.closest('[data-drop]');
+      const r = e.target.closest('[data-review]'), d = e.target.closest('[data-drop]');
       if (r) openReview(r.dataset.review);
       if (d) discard(d.dataset.drop);
     };
-
-    // Keep checking only while something is still moving.
-    if (jobs.some(j => j.status === 'queued' || j.status === 'reading')) {
+    if (jobs.some(j => j.status==='queued' || j.status==='reading')) {
       pollTimer = setTimeout(pollInbox, 4000);
     }
-  } catch { /* a failed poll is not worth interrupting anyone over */ }
+  } catch (e) { /* a failed poll is not worth interrupting anyone over */ }
 }
 
-/* ---------- Review -------------------------------------------------- */
-
 let reviewing = null;
-
 async function openReview(jobId) {
-  const job = await get(`/api/uploads/${jobId}`);
+  const job = await api('/api/uploads/' + jobId);
   const x = job.extraction || {};
   reviewing = { jobId, data: x };
 
-  const tests = (x.tests || []).slice(0, 40);
-  const row = t => `<tr>
-      <td>${esc(t.parameter_standard || t.parameter)}</td>
-      <td class="v ${t.flag ? 'ab' : ''}">${esc(t.result)} ${esc(t.unit || '')}</td>
-      <td style="color:var(--muted)">${esc(t.reference_range || '')}</td>
-    </tr>`;
+  $('reviewSec').hidden = false;
+  $('reviewSec').innerHTML = '<h2>Check before filing</h2><div class="panel">' +
+    ((x.uncertain_fields && x.uncertain_fields.length)
+      ? '<div class="warnbox">Could not read clearly: ' + esc(x.uncertain_fields.join(', ')) +
+        '. Compare against the scan before filing.</div>' : '') +
+    '<div class="field"><label for="rvDate">Date</label><input type="date" id="rvDate" value="'+esc(x.event_date||'')+'"></div>' +
+    '<div class="field"><label for="rvType">Type</label><input type="text" id="rvType" value="'+esc(x.record_type||'')+'"></div>' +
+    '<div class="field"><label for="rvSummary">Summary</label><textarea id="rvSummary">'+esc(x.summary||'')+'</textarea></div>' +
+    '<div class="legend">' +
+      '<span><b>'+(x.tests||[]).length+'</b> tests</span>' +
+      '<span><b>'+(x.medicines||[]).length+'</b> medicines</span>' +
+      '<span><b>'+(x.diagnoses||[]).length+'</b> diagnoses</span>' +
+      '<span><b>'+(x.follow_ups||[]).length+'</b> follow-ups</span>' +
+      '<span><b>'+(x.bills||[]).length+'</b> billed items</span></div>' +
+    ((x.tests||[]).length ? '<div class="rowlist" style="margin-top:12px;max-height:280px;overflow:auto">' +
+      x.tests.slice(0,60).map(t => '<div class="r ' + (t.flag?'bad':'') + '">' +
+        '<span class="t">' + esc(t.parameter_standard || t.parameter) + '</span>' +
+        '<span class="v num">' + esc(t.result) + ' ' + esc(t.unit||'') + '</span>' +
+        (t.reference_range ? '<span class="x">ref ' + esc(t.reference_range) + '</span>' : '') +
+        '</div>').join('') + '</div>' : '') +
+    '<div class="field" style="margin-top:14px"><button class="go" id="rvGo">File it</button>' +
+    '<button class="ghost danger" id="rvDrop">Discard</button></div>' +
+    '<div class="status" id="rvStatus"></div></div>';
 
-  $('reviewCard').hidden = false;
-  $('reviewCard').innerHTML = `
-    <h2>Check before filing</h2>
-    ${x.uncertain_fields?.length
-      ? `<div class="warn">Could not read clearly: ${esc(x.uncertain_fields.join(', '))}. Compare against the scan.</div>` : ''}
-    <div class="field"><label for="rvDate">Date</label>
-      <input type="date" id="rvDate" value="${esc(x.event_date || '')}"></div>
-    <div class="field"><label for="rvType">Type</label>
-      <input type="text" id="rvType" value="${esc(x.record_type || '')}"></div>
-    <div class="field"><label for="rvWhere">Doctor / lab</label>
-      <input type="text" id="rvWhere" value="${esc([x.doctor_name, x.facility].filter(Boolean).join(', '))}" disabled></div>
-    <div class="field"><label for="rvSummary">Summary</label>
-      <textarea id="rvSummary">${esc(x.summary || '')}</textarea></div>
-    <div class="counts">
-      <span><b>${(x.tests || []).length}</b> tests</span>
-      <span><b>${(x.medicines || []).length}</b> medicines</span>
-      <span><b>${(x.diagnoses || []).length}</b> diagnoses</span>
-      <span><b>${(x.follow_ups || []).length}</b> follow-ups</span>
-      <span><b>${(x.bills || []).length}</b> billed items</span>
-    </div>
-    ${tests.length ? `<div class="peek"><table>${tests.map(row).join('')}</table></div>` : ''}
-    <div class="field" style="margin-top:12px">
-      <button class="go" id="rvApprove">File it</button>
-      <button class="ghost" id="rvDiscard">Discard</button>
-    </div>
-    <div class="status" id="rvStatus"></div>`;
-
-  $('rvApprove').onclick = fileIt;
-  $('rvDiscard').onclick = () => discard(jobId);
-  $('reviewCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  $('rvGo').onclick = fileIt;
+  $('rvDrop').onclick = () => discard(jobId);
+  $('reviewSec').scrollIntoView({ behavior:'smooth', block:'nearest' });
 }
 
 async function fileIt() {
-  const { jobId, data } = reviewing;
-  const payload = {
-    ...data,
-    event_date: $('rvDate').value,
-    record_type: $('rvType').value,
-    summary: $('rvSummary').value,
-  };
-  $('rvApprove').disabled = true;
-  $('rvStatus').textContent = 'Filing\u2026';
+  const jobId = reviewing.jobId, data = reviewing.data;
+  $('rvGo').disabled = true;
+  setStatus('rvStatus', 'Filing\u2026');
   try {
-    const res = await fetch(`/api/uploads/${jobId}/approve`, {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || 'Could not file this.');
-
-    const c = body.counts;
-    $('reviewCard').hidden = true;
-    $('status').textContent =
-      `Filed: ${c.tests} tests, ${c.medicines} medicines, ${c.documents} document(s).`;
+    const payload = Object.assign({}, data, {
+      event_date: $('rvDate').value, record_type: $('rvType').value, summary: $('rvSummary').value });
+    const r = await post('/api/uploads/' + jobId + '/approve', payload);
+    $('reviewSec').hidden = true;
     reviewing = null;
+    setStatus('upStatus', 'Filed: ' + r.counts.tests + ' tests, ' + r.counts.medicines +
+      ' medicines, ' + r.counts.documents + ' document(s).', 'ok');
     pollInbox();
-    if (current) select(current);
-  } catch (err) {
-    $('rvStatus').textContent = err.message;
-    $('rvApprove').disabled = false;
-  }
+  } catch (err) { setStatus('rvStatus', err.message, 'err'); $('rvGo').disabled = false; }
 }
 
 async function discard(jobId) {
   if (!confirm('Discard this upload? The scans are deleted too.')) return;
-  await fetch(`/api/uploads/${jobId}/reject`, { method: 'POST', credentials: 'same-origin' });
-  $('reviewCard').hidden = true;
-  reviewing = null;
+  await post('/api/uploads/' + jobId + '/reject', {});
+  $('reviewSec').hidden = true;
   pollInbox();
 }
 
-async function select(personId) {
-  current = personId;
-  [...$('people').children].forEach(b =>
-    b.setAttribute('aria-pressed', b.dataset.id === personId));
-  note('Loading', 'Fetching this person\u2019s history.');
-  try {
-    const { items } = await get(`/api/timeline?person=${encodeURIComponent(personId)}`);
-    if (!items.length) {
-      return note('Nothing recorded yet', 'Upload a report and it will appear here.');
-    }
-    $('content').innerHTML = '<ul>' + items.map(r => `
-      <li>
-        <div class="row">
-          <span class="date num">${r.date || ''}</span>
-          <span class="title">${esc(r.title)}</span>
-          <span class="val num ${r.flag && r.flag !== 'active' ? 'flag' : ''}">${esc(r.value || '')}</span>
-        </div>
-        ${r.detail ? `<div class="detail">${esc(r.detail)}</div>` : ''}
-      </li>`).join('') + '</ul>';
-  } catch (err) {
-    note('Cannot load history', err.message);
-  }
+/* ---------- settings -------------------------------------------------- */
+
+async function viewSettings() {
+  const results = await Promise.all([
+    api('/api/profile?person=' + current),
+    api('/api/records/aliases/list').catch(() => []),
+  ]);
+  const profile = results[0], aliases = results[1];
+
+  const f = (id, label, value, type) =>
+    '<div class="field"><label for="'+id+'">'+label+'</label>' +
+    (type === 'textarea'
+      ? '<textarea id="'+id+'">'+esc(value||'')+'</textarea>'
+      : '<input type="'+(type||'text')+'" id="'+id+'" value="'+esc(value||'')+'">') + '</div>';
+
+  $('main').innerHTML =
+    '<section><h2>' + esc(person().name) + '\u2019s details</h2>' +
+    '<div class="sub">These appear at the top of the doctor handout.</div><div class="panel">' +
+      f('pDob','Date of birth', profile.date_of_birth, 'date') +
+      f('pBlood','Blood group', profile.blood_group) +
+      f('pAllergy','Allergies', profile.allergies, 'textarea') +
+      f('pChronic','Ongoing conditions', profile.chronic_conditions, 'textarea') +
+      f('pDocs','Regular doctors', profile.regular_doctors) +
+      f('pEmerg','Emergency contact', profile.emergency_contact) +
+      f('pIns','Insurance', profile.insurance) +
+      '<div class="field"><label></label><button class="go" id="pSave">Save details</button></div>' +
+      '<div class="status" id="pStatus"></div></div></section>' +
+
+    '<section><h2>Take everything with you</h2>' +
+    '<div class="sub">Built fresh each time, never stored. Nothing here locks you in.</div>' +
+    '<div class="field"><button class="ghost" id="dlX">Download spreadsheet</button>' +
+    '<button class="ghost" id="dlZ">Download all scans</button></div>' +
+    '<div class="status" id="dlStatus"></div></section>' +
+
+    '<section><h2>Test names the app has learned</h2>' +
+    '<div class="sub">Labs print the same test many ways. Correct a mapping here and every result using it updates.</div>' +
+    (aliases.length ? '<div class="rowlist">' + aliases.map(a =>
+      '<div class="r" data-alias="' + esc(a.alias_key) + '">' +
+      '<span class="t">' + esc(a.original) + '</span>' +
+      '<span class="v">\u2192 ' + esc(a.parameter) + '</span>' +
+      '<span class="kind">' + a.uses + ' use' + (a.uses===1?'':'s') + '</span></div>').join('') + '</div>'
+      : '<div class="empty">Nothing learned yet. New names appear here as reports are read.</div>') +
+    '</section>';
+
+  $('pSave').onclick = async () => {
+    try {
+      await put('/api/profile', { person_id: current, date_of_birth: $('pDob').value,
+        blood_group: $('pBlood').value, allergies: $('pAllergy').value,
+        chronic_conditions: $('pChronic').value, regular_doctors: $('pDocs').value,
+        emergency_contact: $('pEmerg').value, insurance: $('pIns').value });
+      setStatus('pStatus', 'Saved.', 'ok');
+    } catch (err) { setStatus('pStatus', err.message, 'err'); }
+  };
+  $('dlX').onclick = (e) => download('/api/export/workbook', e.target);
+  $('dlZ').onclick = (e) => download('/api/export/documents', e.target);
+  $('main').onclick = (e) => {
+    const a = e.target.closest('[data-alias]');
+    if (!a) return;
+    editAlias(a.dataset.alias, a.querySelector('.t').textContent,
+      a.querySelector('.v').textContent.replace('\u2192 ', ''));
+  };
 }
 
-const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function editAlias(key, original, currentName) {
+  modal('<h3>Standard name</h3>' +
+    '<div class="sub" style="margin-left:0">Printed on the report as \u201c' + esc(original) + '\u201d</div>' +
+    '<div class="field"><label for="aName">Standard name</label><input type="text" id="aName" value="'+esc(currentName)+'"></div>' +
+    '<div class="field"><label for="aUnit">Usual unit</label><input type="text" id="aUnit"></div>' +
+    '<div class="field"><button class="go" id="aSave">Save</button><button class="ghost" id="aCancel">Cancel</button></div>' +
+    '<div class="status" id="aStatus"></div>');
+  $('aCancel').onclick = closeModal;
+  $('aSave').onclick = async () => {
+    try {
+      await put('/api/records/aliases/' + encodeURIComponent(key),
+        { parameter: $('aName').value, unit: $('aUnit').value });
+      closeModal(); viewSettings();
+    } catch (err) { setStatus('aStatus', err.message, 'err'); }
+  };
+}
+
+/* Downloads go through fetch so a failure arrives as a sentence rather than a
+   saved file full of JSON. */
+async function download(path, button) {
+  const original = button.textContent;
+  button.disabled = true; button.textContent = 'Preparing\u2026';
+  try {
+    const res = await fetch(path, { credentials:'same-origin' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || 'Export failed.');
+    }
+    const cd = res.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="([^"]+)"/);
+    const name = match ? match[1] : 'export';
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const inc = res.headers.get('X-Documents-Included');
+    setStatus('dlStatus', inc
+      ? 'Saved ' + name + ' \u2014 ' + inc + ' of ' + res.headers.get('X-Documents-Total') + ' documents.'
+      : 'Saved ' + name + '.', 'ok');
+  } catch (err) { setStatus('dlStatus', err.message, 'err'); }
+  finally { button.disabled = false; button.textContent = original; }
+}
+
 boot();
 </script>
 </body>
