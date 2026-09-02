@@ -18,6 +18,10 @@ import { putDocument, getDocument, objectKey, documentFileName } from './storage
 import { buildWorkbook, buildDocumentArchive, exportFileName } from './export';
 import { readDocument, mergeExtractions, normalise, type Extraction } from './gemini';
 import { approveJob } from './approve';
+import { records } from './records';
+import { events } from './events';
+import { displayDate, parseDate, today as todayIso } from './format';
+import { handoutHtml } from './handout';
 
 export interface Env {
   DB: D1Database;
@@ -39,7 +43,7 @@ export interface OcrMessage {
   mimeType: string;
 }
 
-type Caller = {
+export type Caller = {
   email: string;
   role: 'owner' | 'member' | 'viewer';
   personIds: string[] | 'all';
@@ -509,6 +513,132 @@ app.get('/api/documents/:documentId/file', async (c) => {
   });
 });
 
+
+app.route('/api/records', records);
+app.route('/api/events', events);
+
+/* ------------------------------------------------------------------ */
+/* 3d. Profile, search, dashboard, documents, handout                  */
+/* ------------------------------------------------------------------ */
+
+app.get('/api/profile', async (c) => {
+  const person = requirePerson(c.get('caller'), c.req.query('person'));
+  const row = await c.env.DB.prepare(`SELECT * FROM profiles WHERE person_id = ?`).bind(person).first();
+  return c.json(row ?? { person_id: person });
+});
+
+app.put('/api/profile', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
+  const b = await c.req.json<any>();
+  const person = requirePerson(caller, b.person_id);
+
+  await c.env.DB.prepare(
+    `INSERT INTO profiles (person_id, date_of_birth, blood_group, allergies, chronic_conditions,
+                           regular_doctors, emergency_contact, insurance, notes, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+     ON CONFLICT(person_id) DO UPDATE SET
+       date_of_birth=excluded.date_of_birth, blood_group=excluded.blood_group,
+       allergies=excluded.allergies, chronic_conditions=excluded.chronic_conditions,
+       regular_doctors=excluded.regular_doctors, emergency_contact=excluded.emergency_contact,
+       insurance=excluded.insurance, notes=excluded.notes, updated_at=datetime('now')`
+  ).bind(person, parseDate(b.date_of_birth) || null, b.blood_group ?? '', b.allergies ?? '',
+         b.chronic_conditions ?? '', b.regular_doctors ?? '', b.emergency_contact ?? '',
+         b.insurance ?? '', b.notes ?? '').run();
+
+  return c.json({ ok: true });
+});
+
+/** One box across everything filed for a person. */
+app.get('/api/search', async (c) => {
+  const person = requirePerson(c.get('caller'), c.req.query('person'));
+  const q = String(c.req.query('q') ?? '').trim().toLowerCase().slice(0, 80);
+  if (!q) return c.json({ items: [] });
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT kind, ref_id, date, title, value, detail, flag, care_event_id
+       FROM timeline
+      WHERE person_id = ? AND deleted = 0 AND search_text LIKE ?
+      ORDER BY date DESC LIMIT 60`
+  ).bind(person, `%${q}%`).all();
+  return c.json({ query: q, items: results });
+});
+
+/** What needs attention, across everyone this caller can see. */
+app.get('/api/dashboard', async (c) => {
+  const s = scopeClause(c.get('caller'), 'f.person_id');
+  const s2 = scopeClause(c.get('caller'), 't.person_id');
+  const s3 = scopeClause(c.get('caller'), 'r.person_id');
+
+  const [overdue, upcoming, abnormal, recent] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT f.follow_up_id, f.due_date, f.type, f.instruction, p.name person
+         FROM follow_ups f JOIN people p USING (person_id)
+        WHERE f.deleted = 0 AND f.status = 'pending' AND f.due_date < date('now') AND ${s.sql}
+        ORDER BY f.due_date LIMIT 20`).bind(...s.binds),
+    c.env.DB.prepare(
+      `SELECT f.follow_up_id, f.due_date, f.type, f.instruction, p.name person
+         FROM follow_ups f JOIN people p USING (person_id)
+        WHERE f.deleted = 0 AND f.status = 'pending' AND f.due_date >= date('now') AND ${s.sql}
+        ORDER BY f.due_date LIMIT 20`).bind(...s.binds),
+    c.env.DB.prepare(
+      `SELECT t.parameter, t.result_text, t.unit_raw, t.test_date, t.flag, p.name person
+         FROM test_results t JOIN people p USING (person_id)
+        WHERE t.deleted = 0 AND t.is_abnormal = 1 AND ${s2.sql}
+          AND t.test_date = (SELECT MAX(t2.test_date) FROM test_results t2
+                              WHERE t2.person_id = t.person_id AND t2.parameter = t.parameter AND t2.deleted = 0)
+        ORDER BY t.test_date DESC LIMIT 15`).bind(...s2.binds),
+    c.env.DB.prepare(
+      `SELECT r.record_id, r.event_date, r.record_type, r.summary, r.facility, p.name person
+         FROM records r JOIN people p USING (person_id)
+        WHERE r.deleted = 0 AND ${s3.sql} ORDER BY r.event_date DESC LIMIT 10`).bind(...s3.binds),
+  ]);
+
+  return c.json({
+    overdue: overdue.results, upcoming: upcoming.results,
+    abnormal: abnormal.results, recent: recent.results,
+  });
+});
+
+/** Documents attached to one record, with links. */
+app.get('/api/records/:recordId/documents', async (c) => {
+  const recordId = c.req.param('recordId');
+  const { results } = await c.env.DB.prepare(
+    `SELECT d.document_id, d.file_name, d.document_type, d.document_date, d.provider,
+            d.mime_type, d.bytes, d.legacy_url, p.name person, d.person_id
+       FROM documents d JOIN people p USING (person_id)
+      WHERE d.record_id = ? AND d.deleted = 0 ORDER BY d.document_date`
+  ).bind(recordId).all<any>();
+  if (results.length) requirePerson(c.get('caller'), results[0].person_id);
+  return c.json(results);
+});
+
+/** A printable one-page summary, and a link a doctor can open without an account. */
+app.get('/api/handout', async (c) => {
+  const person = requirePerson(c.get('caller'), c.req.query('person'));
+  return new Response(await handoutHtml(c.env, person), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+});
+
+app.post('/api/handout/share', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
+  const { person, hours } = await c.req.json<{ person: string; hours?: number }>();
+  requirePerson(caller, person);
+
+  const shareId = crypto.randomUUID().replace(/-/g, '');
+  const ttl = Math.min(Math.max(Number(hours) || 24, 1), 168);
+  const expires = new Date(Date.now() + ttl * 3600_000).toISOString();
+
+  await c.env.DB.prepare(
+    `INSERT INTO shares (share_id, person_id, kind, r2_key, created_by, expires_at, max_views)
+     VALUES (?,?,'handout','',?,?,20)`
+  ).bind(shareId, person, caller.email, expires).run();
+
+  return c.json({ url: `${new URL(c.req.url).origin}/s/${shareId}`, expiresAt: expires, hours: ttl });
+});
+
 /* ------------------------------------------------------------------ */
 /* 4. Everything else                                                  */
 /* ------------------------------------------------------------------ */
@@ -516,7 +646,31 @@ app.get('/api/documents/:documentId/file', async (c) => {
 app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ error: err.message }, err.status as any);
   console.error(err);
-  return c.json({ error: 'Something went wrong. Try again.' }, 500);
+  // Four family members debugging their own tool are better served by the real
+  // message than by a polite placeholder.
+  const detail = err instanceof Error ? err.message : String(err);
+  return c.json({ error: detail.slice(0, 400) || 'Something went wrong.' }, 500);
+});
+
+/**
+ * The one route with no Access in front of it: a doctor opening a share link.
+ * Guarded by an unguessable id, an expiry and a view cap instead.
+ */
+app.get('/s/:shareId', async (c) => {
+  const share = await c.env.DB.prepare(
+    `SELECT * FROM shares WHERE share_id = ? AND revoked = 0`
+  ).bind(c.req.param('shareId')).first<any>();
+
+  if (!share) return c.text('This link is not valid.', 404);
+  if (share.expires_at < new Date().toISOString()) return c.text('This link has expired.', 410);
+  if (share.max_views && share.views >= share.max_views) return c.text('This link has expired.', 410);
+
+  await c.env.DB.prepare(`UPDATE shares SET views = views + 1 WHERE share_id = ?`)
+    .bind(share.share_id).run();
+
+  return new Response(await handoutHtml(c.env, share.person_id, true), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
 });
 
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
