@@ -100,7 +100,7 @@ async function scopeFor(env: Env, email: string): Promise<Caller> {
     throw new HttpError(403, 'Your account has not been given access to any records yet.');
   }
 
-  if (row.expires_at && row.expires_at < today()) {
+  if (row.expires_at && row.expires_at < todayIso()) {
     throw new HttpError(403, 'Your access to these records has expired.');
   }
 
@@ -140,7 +140,7 @@ app.get('/api/me', async (c) => {
     role: caller.role,
     title: c.env.APP_TITLE,
     storage: connected || 'r2',
-    today: today(),
+    today: todayIso(),
   });
 });
 
@@ -247,7 +247,7 @@ app.get('/api/snapshot', async (c) => {
     profile: profile.results[0] ?? null,
     activeMedicines: meds.results,
     openFollowUps: followUps.results,
-    overdueCount: followUps.results.filter((f: any) => f.due_date && f.due_date < today()).length,
+    overdueCount: followUps.results.filter((f: any) => f.due_date && f.due_date < todayIso()).length,
     abnormalTests: abnormal.results,
     lastVisit: lastVisit.results[0] ?? null,
   });
@@ -260,14 +260,16 @@ app.get('/api/snapshot', async (c) => {
 app.post('/api/uploads', async (c) => {
   const caller = c.get('caller');
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
-  const body = await c.req.json<{ person: string; date?: string; careEventId?: string }>();
-  const person = requirePerson(caller, body.person);
+  const body = await c.req.json<{ person?: string; date?: string; careEventId?: string }>();
+  // The person is optional. If it is not given, the reader works out who the
+  // report belongs to from the name printed on it.
+  const person = body.person ? requirePerson(caller, body.person) : null;
   const jobId = crypto.randomUUID();
 
   await c.env.DB.prepare(
     `INSERT INTO jobs (job_id, person_id, care_event_id, user_date, status, message, created_by)
      VALUES (?, ?, ?, ?, 'draft', 'Add files, then submit.', ?)`
-  ).bind(jobId, person, body.careEventId || null, body.date || today(), caller.email).run();
+  ).bind(jobId, person, body.careEventId || null, body.date || todayIso(), caller.email).run();
 
   return c.json({ jobId });
 });
@@ -283,9 +285,9 @@ app.post('/api/uploads/:jobId/file', async (c) => {
   const jobId = c.req.param('jobId');
   const job = await c.env.DB.prepare(
     `SELECT job_id, person_id, status FROM jobs WHERE job_id = ?`
-  ).bind(jobId).first<{ job_id: string; person_id: string; status: string }>();
+  ).bind(jobId).first<{ job_id: string; person_id: string | null; status: string }>();
   if (!job) throw new HttpError(404, 'Upload not found.');
-  requirePerson(caller, job.person_id);
+  if (job.person_id) requirePerson(caller, job.person_id);
   if (!['draft', 'error'].includes(job.status)) throw new HttpError(409, 'This upload is already being processed.');
 
   const form = await c.req.formData();
@@ -307,7 +309,7 @@ app.post('/api/uploads/:jobId/file', async (c) => {
   }
 
   const jobFileId = crypto.randomUUID();
-  const r2Key = objectKey(job.person_id, jobFileId);
+  const r2Key = objectKey(job.person_id ?? 'unassigned', jobFileId);
   await putDocument(c.env, r2Key, bytes, file.type);
 
   const { count } = await c.env.DB.prepare(
@@ -382,9 +384,11 @@ app.post('/api/uploads/:jobId/approve', async (c) => {
 
   const jobId = c.req.param('jobId');
   const job = await c.env.DB.prepare(
-    `SELECT j.*, p.name person_name FROM jobs j JOIN people p USING (person_id) WHERE j.job_id = ?`
+    `SELECT j.*, p.name person_name FROM jobs j LEFT JOIN people p ON p.person_id = j.person_id
+      WHERE j.job_id = ?`
   ).bind(jobId).first<any>();
   if (!job) throw new HttpError(404, 'Upload not found.');
+  if (!job.person_id) throw new HttpError(400, 'Choose who this report belongs to first.');
   requirePerson(caller, job.person_id);
   if (job.status !== 'review') throw new HttpError(409, `This upload is ${job.status}, not awaiting review.`);
 
@@ -434,14 +438,108 @@ app.post('/api/uploads/:jobId/reject', async (c) => {
 app.get('/api/inbox', async (c) => {
   const s = scopeClause(c.get('caller'), 'j.person_id');
   const { results } = await c.env.DB.prepare(
-    `SELECT j.job_id, j.status, j.message, j.updated_at, p.name person,
+    `SELECT j.job_id, j.status, j.message, j.updated_at, j.detected_name, j.person_id,
+            COALESCE(p.name, '') person,
             (SELECT COUNT(*) FROM job_files f WHERE f.job_id = j.job_id) files
-       FROM jobs j JOIN people p USING (person_id)
-      WHERE j.status IN ('queued','reading','review','error') AND ${s.sql}
+       FROM jobs j LEFT JOIN people p ON p.person_id = j.person_id
+      WHERE j.status IN ('queued','reading','review','error')
+        AND (j.person_id IS NULL OR ${s.sql})
       ORDER BY CASE j.status WHEN 'error' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, j.updated_at DESC
       LIMIT 40`
   ).bind(...s.binds).all();
   return c.json(results);
+});
+
+
+/** Set or correct who an upload belongs to, before it is filed. */
+app.post('/api/uploads/:jobId/person', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
+  const { person, careEventId } = await c.req.json<{ person: string; careEventId?: string | null }>();
+  requirePerson(caller, person);
+
+  await c.env.DB.prepare(
+    `UPDATE jobs SET person_id = ?, care_event_id = COALESCE(?, care_event_id),
+            message = 'Ready for you to check.', updated_at = datetime('now')
+      WHERE job_id = ?`
+  ).bind(person, careEventId ?? null, c.req.param('jobId')).run();
+  return c.json({ ok: true });
+});
+
+/**
+ * One panel of tests as a grid: a row per test, a column per date it was taken.
+ * This is how a lab prints a report and how a doctor reads one.
+ */
+app.get('/api/panel', async (c) => {
+  const person = requirePerson(c.get('caller'), c.req.query('person'));
+  const category = c.req.query('category');
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT t.parameter, t.test_date, t.result_text, t.unit_raw, t.value_a,
+            t.ref_range_text, t.ref_low, t.ref_high, t.is_abnormal,
+            COALESCE(tc.category, 'Other tests') category, COALESCE(tc.sort_order, 9999) ord
+       FROM test_results t
+       LEFT JOIN test_categories tc ON tc.parameter = t.parameter
+      WHERE t.person_id = ? AND t.deleted = 0
+        AND (? IS NULL OR COALESCE(tc.category,'Other tests') = ?)
+      ORDER BY ord, t.parameter, t.test_date DESC`
+  ).bind(person, category ?? null, category ?? null).all<any>();
+
+  // Newest twelve columns; older values stay reachable on the single-test view.
+  const dates = [...new Set(results.map((r) => r.test_date))].sort().reverse().slice(0, 12);
+  const byParam = new Map<string, any>();
+
+  for (const r of results) {
+    if (!byParam.has(r.parameter)) {
+      byParam.set(r.parameter, {
+        parameter: r.parameter, category: r.category, unit: r.unit_raw,
+        reference: r.ref_range_text, refLow: r.ref_low, refHigh: r.ref_high,
+        values: {}, chartable: 0, total: 0,
+      });
+    }
+    const row = byParam.get(r.parameter);
+    row.total++;
+    if (r.value_a !== null) row.chartable++;
+    if (!row.values[r.test_date]) {
+      row.values[r.test_date] = { text: r.result_text, abnormal: !!r.is_abnormal };
+    }
+    if (!row.reference && r.ref_range_text) row.reference = r.ref_range_text;
+  }
+
+  return c.json({ dates, rows: [...byParam.values()] });
+});
+
+/** Which panels this person has results in, and how many need attention. */
+app.get('/api/panels', async (c) => {
+  const person = requirePerson(c.get('caller'), c.req.query('person'));
+  const { results } = await c.env.DB.prepare(
+    `SELECT COALESCE(tc.category,'Other tests') category,
+            COUNT(DISTINCT t.parameter) tests, COUNT(*) results,
+            MAX(t.test_date) latest,
+            SUM(CASE WHEN t.is_abnormal = 1 THEN 1 ELSE 0 END) flagged
+       FROM test_results t LEFT JOIN test_categories tc ON tc.parameter = t.parameter
+      WHERE t.person_id = ? AND t.deleted = 0
+      GROUP BY category ORDER BY latest DESC`
+  ).bind(person).all();
+  return c.json(results);
+});
+
+/** One call at start-up instead of three: the app opens noticeably faster. */
+app.get('/api/bootstrap', async (c) => {
+  const caller = c.get('caller');
+  const s = scopeClause(caller, 'p.person_id');
+  const [people, inbox] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT p.person_id, p.name, pr.blood_group, pr.allergies, pr.chronic_conditions
+         FROM people p LEFT JOIN profiles pr USING (person_id)
+        WHERE p.active = 1 AND ${s.sql} ORDER BY p.sort_order, p.name`).bind(...s.binds),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) n FROM jobs WHERE status IN ('queued','reading','review','error')`),
+  ]);
+  return c.json({
+    email: caller.email, role: caller.role, today: todayIso(),
+    people: people.results, pending: (inbox.results[0] as any)?.n ?? 0,
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -691,7 +789,37 @@ function requirePerson(caller: Caller, personId?: string | null): string {
   return personId;
 }
 
-function today(): string { return new Date().toISOString().slice(0, 10); }
+/**
+ * Match a name printed on a report to a person on file. Reports write names in
+ * every possible way — "Mrs. REENA ARORA", "Arora, Reena", "R. Arora" — so
+ * compare on the parts, not the whole string.
+ */
+async function matchPerson(env: Env, printed: string): Promise<string | null> {
+  const norm = (s: string) => s.toLowerCase()
+    .replace(/\b(mr|mrs|ms|miss|dr|shri|smt|master|baby)\b\.?/g, '')
+    .replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const target = norm(printed);
+  if (!target) return null;
+  const parts = target.split(' ').filter((w) => w.length > 2);
+
+  const { results } = await env.DB.prepare(
+    `SELECT person_id, name FROM people WHERE active = 1`
+  ).all<{ person_id: string; name: string }>();
+
+  let best: { id: string; score: number } | null = null;
+  for (const p of results) {
+    const name = norm(p.name);
+    const words = name.split(' ').filter(Boolean);
+    let score = 0;
+    if (name === target) score = 100;
+    else if (target.includes(name) || name.includes(target)) score = 80;
+    else score = words.filter((w) => parts.includes(w)).length * 30;
+    if (score > 0 && (!best || score > best.score)) best = { id: p.person_id, score };
+  }
+  // A single shared surname is not enough to file someone's blood work.
+  return best && best.score >= 60 ? best.id : null;
+}
 
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -724,16 +852,30 @@ export default {
         ).bind(jobId).run();
 
         const job = await env.DB.prepare(
-          `SELECT j.user_date, p.name person FROM jobs j JOIN people p USING (person_id) WHERE j.job_id = ?`
-        ).bind(jobId).first<{ user_date: string | null; person: string }>();
+          `SELECT j.user_date, j.person_id, p.name person
+             FROM jobs j LEFT JOIN people p ON p.person_id = j.person_id WHERE j.job_id = ?`
+        ).bind(jobId).first<{ user_date: string | null; person_id: string | null; person: string | null }>();
         const file = await env.DB.prepare(
           `SELECT file_name FROM job_files WHERE job_file_id = ?`
         ).bind(jobFileId).first<{ file_name: string }>();
 
         const bytes = await getDocument(env, r2Key);
         const extraction = await readDocument(
-          env, bytes, mimeType, job?.person ?? 'Unknown', job?.user_date ?? null, file?.file_name ?? 'document'
+          env, bytes, mimeType, job?.person ?? null, job?.user_date ?? null, file?.file_name ?? 'document'
         );
+
+        // Nobody was chosen at upload time: match the printed name to a person.
+        if (!job?.person_id && extraction.patient_name) {
+          const match = await matchPerson(env, extraction.patient_name);
+          if (match) {
+            await env.DB.prepare(
+              `UPDATE jobs SET person_id = ?, detected_name = ? WHERE job_id = ? AND person_id IS NULL`
+            ).bind(match, extraction.patient_name, jobId).run();
+          } else {
+            await env.DB.prepare(`UPDATE jobs SET detected_name = ? WHERE job_id = ?`)
+              .bind(extraction.patient_name, jobId).run();
+          }
+        }
 
         await env.DB.prepare(
           `UPDATE job_files SET ai_status='done', ai_json=?, last_error='' WHERE job_file_id = ?`

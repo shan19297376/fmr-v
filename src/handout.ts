@@ -87,11 +87,12 @@ export async function handoutHtml(env: Env, personId: string, shared = false): P
   .hi{color:var(--alert);font-weight:600}
   .q{color:var(--muted);font-style:italic}
   footer{margin-top:22px;padding-top:8px;border-top:1px solid var(--line);color:var(--muted);font-size:10.5px}
-  .print{position:fixed;top:16px;right:16px;background:var(--deep);color:#fff;border:0;
-         padding:9px 16px;border-radius:7px;font-size:13px;cursor:pointer}
+  .print{position:fixed;top:14px;right:14px;background:var(--deep);color:#fff;border:0;
+         padding:11px 18px;border-radius:8px;font-size:14px;cursor:pointer;
+         box-shadow:0 2px 10px rgba(0,0,0,.22);z-index:9}
   @media print{.print{display:none}body{padding:0}}
 </style></head><body>
-${shared ? '' : '<button class="print" onclick="window.print()">Print or save as PDF</button>'}
+<button class="print" id="printBtn" type="button">Print / save as PDF</button>
 
 <h1>${esc(person.name)}</h1>
 <p class="sub">Medical summary prepared ${esc(displayDate(today()))}${age !== null ? ` &middot; age ${age}` : ''}</p>
@@ -150,5 +151,10 @@ ${section('Recent visits and reports', ['Date', 'Type', 'Summary'],
   no end date, it is shown as unconfirmed rather than assumed to be current.
   Original reports available on request.
 </footer>
+<script>
+  // An inline onclick can be blocked; a listener is not. Opening the print
+  // dialog on load for a shared link is intrusive, so it stays on the button.
+  document.getElementById('printBtn').addEventListener('click', function () { window.print(); });
+</script>
 </body></html>`;
 }

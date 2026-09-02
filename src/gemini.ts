@@ -34,6 +34,7 @@ const VOCAB = [
 ];
 
 export interface Extraction {
+  patient_name: string;
   event_date: string;
   record_type: string;
   doctor_name: string;
@@ -51,10 +52,13 @@ export interface Extraction {
   bills: any[];
 }
 
-function prompt(person: string, date: string | null, fileName: string): string {
+function prompt(person: string | null, date: string | null, fileName: string): string {
   return [
     'Transcribe the facts printed in this medical document. Do not diagnose, interpret, recommend or infer.',
-    `Patient: ${person}. Approximate date given by the user: ${date || 'not provided'}. File: ${fileName}.`,
+    person
+      ? `Expected patient: ${person}.`
+      : 'Read the patient name printed on the document and return it in patient_name exactly as printed. If no name is printed, return an empty string.',
+    `Approximate date given by the user: ${date || 'not provided'}. File: ${fileName}.`,
     `record_type must be exactly one of: ${RECORD_TYPES.join(', ')}.`,
     'Capture every test result, medicine, diagnosis, follow-up instruction and billed line item.',
     'Copy doses, decimal points, units and abnormal flags exactly as printed. Never convert a unit.',
@@ -73,7 +77,7 @@ function schema() {
   return {
     type: 'object',
     properties: {
-      event_date: s, record_type: s, doctor_name: s, speciality: s, facility: s,
+      patient_name: s, event_date: s, record_type: s, doctor_name: s, speciality: s, facility: s,
       reason_or_symptoms: s, summary: s, key_findings: s,
       uncertain_fields: { type: 'array', items: s },
       documents: arr({ document_date: s, document_type: s, provider: s, document_summary: s }),
@@ -90,7 +94,7 @@ function schema() {
 const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash'];
 
 export async function readDocument(
-  env: Env, bytes: Uint8Array, mimeType: string, person: string, userDate: string | null, fileName: string
+  env: Env, bytes: Uint8Array, mimeType: string, person: string | null, userDate: string | null, fileName: string
 ): Promise<Extraction> {
   if (!env.GEMINI_API_KEY) throw new Error('No Gemini key is configured.');
 
@@ -176,6 +180,7 @@ export function normalise(x: any): Extraction {
   const type = str(x?.record_type);
 
   return {
+    patient_name: str(x?.patient_name),
     event_date: cleanDate(x?.event_date),
     record_type: (RECORD_TYPES as readonly string[]).includes(type) ? type : 'Other',
     doctor_name: str(x?.doctor_name),
@@ -234,6 +239,7 @@ export function mergeExtractions(parts: Extraction[], fallbackDate: string): Ext
     parts.map(pick).filter(Boolean).join(sep);
 
   return normalise({
+    patient_name: parts.map((e) => e.patient_name).find(Boolean) ?? '',
     event_date: first.event_date || fallbackDate,
     record_type: first.record_type,
     doctor_name: first.doctor_name,
