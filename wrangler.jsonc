@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "fmr-v",
+  "name": "fmr",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -12,12 +12,17 @@
     "not_found_handling": "single-page-application"
   },
 
+  // Encrypted document storage. No public endpoint; reachable only via this Worker.
+  "r2_buckets": [
+    { "binding": "DOCS", "bucket_name": "fmr-docs" }
+  ],
+
   // Provisioned automatically by the Deploy to Cloudflare button.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "fmr",
-      "database_id": "61315fe4-03c3-4ccd-877f-52ee05d690c4",
+      "database_id": "PLACEHOLDER",
       "migrations_dir": "migrations"
     }
   ],
@@ -39,7 +44,7 @@
   "triggers": { "crons": ["30 21 * * *"] },
 
   "vars": {
-       "ACCESS_TEAM_DOMAIN": "vishal-fmr-team.cloudflareaccess.com",
+    "ACCESS_TEAM_DOMAIN": "vishal-fmr-team.cloudflareaccess.com",
     "TIMEZONE": "Asia/Kolkata",
     "APP_TITLE": "Family Medical Records"
   },
@@ -47,9 +52,8 @@
   "observability": { "enabled": true }
 
   // Secrets, set once during deployment (never stored in this file):
-  //   GEMINI_API_KEY         from aistudio.google.com/apikey
-  //   GOOGLE_CLIENT_ID       from Google Cloud Console
-  //   GOOGLE_CLIENT_SECRET   from Google Cloud Console
-  //   GOOGLE_REFRESH_TOKEN   from the one-time Connect Google step
-  //   ACCESS_AUD             Application Audience tag from Cloudflare Access
+  //   GEMINI_API_KEY       from aistudio.google.com/apikey
+  //   ACCESS_AUD           Application Audience tag from Cloudflare Access
+  //   DOC_ENCRYPTION_KEY   long random string; encrypts every scan before R2
+  //                        stores it. Losing it means losing the documents.
 }
