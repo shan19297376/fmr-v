@@ -71,6 +71,40 @@
   .bar button:disabled{opacity:.55;cursor:default}
   .bar .add{background:var(--deep);border-color:var(--deep);color:#fff}
   .status{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:15px;font-weight:600}
+  .field{display:flex;gap:10px;align-items:center;margin-bottom:9px;flex-wrap:wrap}
+  .field label{font-size:13px;color:var(--muted);flex:0 0 92px}
+  input[type=date],input[type=text],textarea{
+    border:1px solid var(--line);border-radius:7px;padding:8px 10px;font:inherit;
+    font-size:14px;color:var(--ink);background:#fff;flex:1;min-width:150px;
+  }
+  textarea{min-height:64px;resize:vertical;line-height:1.45}
+  input[type=file]{font-size:13px;flex:1;min-width:180px}
+  .go{background:var(--deep);color:#fff;border:1px solid var(--deep);padding:9px 18px;
+      border-radius:8px;font-size:14px;cursor:pointer;font-weight:500}
+  .go:disabled{opacity:.55;cursor:default}
+  .ghost{background:#fff;border:1px solid var(--line);color:var(--muted);padding:9px 16px;
+         border-radius:8px;font-size:14px;cursor:pointer}
+
+  .job{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+  .job:first-of-type{border-top:0}
+  .job .name{font-weight:600;font-size:14px}
+  .job .st{margin-left:auto;font-size:12px;color:var(--muted)}
+  .job .st.err{color:var(--alert)}
+  .job .st.rdy{color:var(--ok);font-weight:600}
+
+  .counts{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:10px 0}
+  .counts b{color:var(--ink)}
+  .warn{background:#fdf4ec;border:1px solid #f0d9c0;border-radius:8px;padding:10px 12px;
+        font-size:13px;color:#7a4a1e;margin:10px 0}
+  .peek{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin:10px 0}
+  .peek table{width:100%;border-collapse:collapse;font-size:13px}
+  .peek td{padding:5px 9px;border-bottom:1px solid var(--line)}
+  .peek tr:last-child td{border-bottom:0}
+  .peek .v{text-align:right;font-variant-numeric:tabular-nums}
+  .peek .ab{color:var(--alert);font-weight:600}
   @media (max-width:420px){ .detail{padding-left:0} }
 </style>
 </head>
@@ -85,6 +119,30 @@
   <div id="content">
     <div class="note"><strong>Loading</strong>Checking who you are.</div>
   </div>
+
+  <div class="card" id="uploadCard" hidden>
+    <h2>Add a report</h2>
+    <div class="field">
+      <label for="upDate">Date on it</label>
+      <input type="date" id="upDate">
+    </div>
+    <div class="field">
+      <label for="upFiles">Scans</label>
+      <input type="file" id="upFiles" multiple accept="application/pdf,image/*">
+    </div>
+    <div class="field">
+      <label></label>
+      <button class="go" id="upGo">Upload and read</button>
+    </div>
+    <div class="status" id="upStatus"></div>
+  </div>
+
+  <div class="card" id="inboxCard" hidden>
+    <h2>Being read</h2>
+    <div id="inbox"></div>
+  </div>
+
+  <div class="card" id="reviewCard" hidden></div>
 
   <div class="bar" id="bar" hidden>
     <button class="add" id="addPerson">Add a person</button>
@@ -114,7 +172,10 @@ async function boot() {
     $('who').textContent = me.email;
 
     $('bar').hidden = false;
+    $('uploadCard').hidden = false;
+    $('upDate').value = me.today;
     await loadPeople();
+    pollInbox();
 
   } catch (err) {
     note('Cannot load your records', err.message);
@@ -190,6 +251,175 @@ async function download(path, button, label) {
 
 $('dlWorkbook').onclick = (e) => download('/api/export/workbook', e.target, 'records.xlsx');
 $('dlDocuments').onclick = (e) => download('/api/export/documents', e.target, 'documents.zip');
+
+/* ---------- Upload ------------------------------------------------- */
+/* Each file is posted, stored and queued on its own. The button frees up as
+   soon as the last one is handed off, so nothing waits on the reading. */
+
+$('upGo').onclick = async () => {
+  const files = [...$('upFiles').files];
+  if (!current) return ($('upStatus').textContent = 'Pick a person first.');
+  if (!files.length) return ($('upStatus').textContent = 'Choose at least one scan.');
+
+  const btn = $('upGo');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/uploads', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ person: current, date: $('upDate').value }),
+    });
+    const { jobId, error } = await res.json();
+    if (!res.ok) throw new Error(error || 'Could not start the upload.');
+
+    for (const [i, file] of files.entries()) {
+      $('upStatus').textContent = `Sending ${i + 1} of ${files.length}\u2026`;
+      const form = new FormData();
+      form.append('file', file);
+      const up = await fetch(`/api/uploads/${jobId}/file`, {
+        method: 'POST', credentials: 'same-origin', body: form,
+      });
+      const body = await up.json();
+      if (up.status === 409 && body.duplicate) {
+        $('upStatus').textContent = `${file.name} is already filed \u2014 skipped.`;
+        continue;
+      }
+      if (!up.ok) throw new Error(body.error || `${file.name} could not be sent.`);
+    }
+
+    $('upFiles').value = '';
+    $('upStatus').textContent = 'Sent. Reading happens in the background \u2014 carry on using the app.';
+    pollInbox();
+  } catch (err) {
+    $('upStatus').textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+/* ---------- Inbox --------------------------------------------------- */
+
+let pollTimer = null;
+
+async function pollInbox() {
+  clearTimeout(pollTimer);
+  try {
+    const jobs = await get('/api/inbox');
+    $('inboxCard').hidden = jobs.length === 0;
+
+    const label = { queued: 'Waiting', reading: 'Reading\u2026', review: 'Ready to check', error: 'Failed' };
+    const cls = { review: 'rdy', error: 'err' };
+
+    $('inbox').innerHTML = jobs.map(j => `
+      <div class="job">
+        <span class="name">${esc(j.person)}</span>
+        <span style="font-size:13px;color:var(--muted)">${j.files} file(s)</span>
+        <span class="st ${cls[j.status] || ''}">${label[j.status] || j.status}</span>
+        ${j.status === 'review' ? `<button class="ghost" data-review="${j.job_id}">Check</button>` : ''}
+        ${j.status === 'error' ? `<button class="ghost" data-drop="${j.job_id}">Discard</button>` : ''}
+      </div>`).join('');
+
+    $('inbox').onclick = (e) => {
+      const r = e.target.closest('[data-review]');
+      const d = e.target.closest('[data-drop]');
+      if (r) openReview(r.dataset.review);
+      if (d) discard(d.dataset.drop);
+    };
+
+    // Keep checking only while something is still moving.
+    if (jobs.some(j => j.status === 'queued' || j.status === 'reading')) {
+      pollTimer = setTimeout(pollInbox, 4000);
+    }
+  } catch { /* a failed poll is not worth interrupting anyone over */ }
+}
+
+/* ---------- Review -------------------------------------------------- */
+
+let reviewing = null;
+
+async function openReview(jobId) {
+  const job = await get(`/api/uploads/${jobId}`);
+  const x = job.extraction || {};
+  reviewing = { jobId, data: x };
+
+  const tests = (x.tests || []).slice(0, 40);
+  const row = t => `<tr>
+      <td>${esc(t.parameter_standard || t.parameter)}</td>
+      <td class="v ${t.flag ? 'ab' : ''}">${esc(t.result)} ${esc(t.unit || '')}</td>
+      <td style="color:var(--muted)">${esc(t.reference_range || '')}</td>
+    </tr>`;
+
+  $('reviewCard').hidden = false;
+  $('reviewCard').innerHTML = `
+    <h2>Check before filing</h2>
+    ${x.uncertain_fields?.length
+      ? `<div class="warn">Could not read clearly: ${esc(x.uncertain_fields.join(', '))}. Compare against the scan.</div>` : ''}
+    <div class="field"><label for="rvDate">Date</label>
+      <input type="date" id="rvDate" value="${esc(x.event_date || '')}"></div>
+    <div class="field"><label for="rvType">Type</label>
+      <input type="text" id="rvType" value="${esc(x.record_type || '')}"></div>
+    <div class="field"><label for="rvWhere">Doctor / lab</label>
+      <input type="text" id="rvWhere" value="${esc([x.doctor_name, x.facility].filter(Boolean).join(', '))}" disabled></div>
+    <div class="field"><label for="rvSummary">Summary</label>
+      <textarea id="rvSummary">${esc(x.summary || '')}</textarea></div>
+    <div class="counts">
+      <span><b>${(x.tests || []).length}</b> tests</span>
+      <span><b>${(x.medicines || []).length}</b> medicines</span>
+      <span><b>${(x.diagnoses || []).length}</b> diagnoses</span>
+      <span><b>${(x.follow_ups || []).length}</b> follow-ups</span>
+      <span><b>${(x.bills || []).length}</b> billed items</span>
+    </div>
+    ${tests.length ? `<div class="peek"><table>${tests.map(row).join('')}</table></div>` : ''}
+    <div class="field" style="margin-top:12px">
+      <button class="go" id="rvApprove">File it</button>
+      <button class="ghost" id="rvDiscard">Discard</button>
+    </div>
+    <div class="status" id="rvStatus"></div>`;
+
+  $('rvApprove').onclick = fileIt;
+  $('rvDiscard').onclick = () => discard(jobId);
+  $('reviewCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function fileIt() {
+  const { jobId, data } = reviewing;
+  const payload = {
+    ...data,
+    event_date: $('rvDate').value,
+    record_type: $('rvType').value,
+    summary: $('rvSummary').value,
+  };
+  $('rvApprove').disabled = true;
+  $('rvStatus').textContent = 'Filing\u2026';
+  try {
+    const res = await fetch(`/api/uploads/${jobId}/approve`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'Could not file this.');
+
+    const c = body.counts;
+    $('reviewCard').hidden = true;
+    $('status').textContent =
+      `Filed: ${c.tests} tests, ${c.medicines} medicines, ${c.documents} document(s).`;
+    reviewing = null;
+    pollInbox();
+    if (current) select(current);
+  } catch (err) {
+    $('rvStatus').textContent = err.message;
+    $('rvApprove').disabled = false;
+  }
+}
+
+async function discard(jobId) {
+  if (!confirm('Discard this upload? The scans are deleted too.')) return;
+  await fetch(`/api/uploads/${jobId}/reject`, { method: 'POST', credentials: 'same-origin' });
+  $('reviewCard').hidden = true;
+  reviewing = null;
+  pollInbox();
+}
 
 async function select(personId) {
   current = personId;
