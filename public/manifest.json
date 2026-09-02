@@ -1,0 +1,8 @@
+{
+  "name": "Family Medical Records",
+  "short_name": "Records",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f9fa",
+  "theme_color": "#12414d"
+}
