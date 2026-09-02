@@ -16,6 +16,8 @@ import { Hono } from 'hono';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { putDocument, getDocument, objectKey, documentFileName } from './storage';
 import { buildWorkbook, buildDocumentArchive, exportFileName } from './export';
+import { readDocument, mergeExtractions, normalise, type Extraction } from './gemini';
+import { approveJob } from './approve';
 
 export interface Env {
   DB: D1Database;
@@ -368,6 +370,76 @@ app.post('/api/people', async (c) => {
   return c.json({ personId, name: clean });
 });
 
+
+/** Approve what the reader found. Nothing is filed until this is called. */
+app.post('/api/uploads/:jobId/approve', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
+
+  const jobId = c.req.param('jobId');
+  const job = await c.env.DB.prepare(
+    `SELECT j.*, p.name person_name FROM jobs j JOIN people p USING (person_id) WHERE j.job_id = ?`
+  ).bind(jobId).first<any>();
+  if (!job) throw new HttpError(404, 'Upload not found.');
+  requirePerson(caller, job.person_id);
+  if (job.status !== 'review') throw new HttpError(409, `This upload is ${job.status}, not awaiting review.`);
+
+  // The reviewer may have corrected values on screen; theirs win over Gemini's.
+  const edited = await c.req.json<Partial<Extraction>>().catch(() => null);
+  const data = normalise(edited ?? JSON.parse(job.extraction ?? '{}'));
+  if (!data.event_date) throw new HttpError(400, 'A record date is required.');
+  if (!data.summary) throw new HttpError(400, 'A short summary is required.');
+
+  const { results: files } = await c.env.DB.prepare(
+    `SELECT job_file_id, file_name, mime_type, bytes, r2_key, content_sha256
+       FROM job_files WHERE job_id = ? ORDER BY file_index`
+  ).bind(jobId).all<any>();
+  if (!files.length) throw new HttpError(400, 'No document is attached to this upload.');
+
+  const out = await approveJob(
+    c.env, jobId, job.person_id, job.person_name, job.care_event_id, data, files, caller.email
+  );
+  return c.json(out);
+});
+
+app.post('/api/uploads/:jobId/reject', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
+
+  const jobId = c.req.param('jobId');
+  const job = await c.env.DB.prepare(`SELECT person_id, status FROM jobs WHERE job_id = ?`)
+    .bind(jobId).first<any>();
+  if (!job) throw new HttpError(404, 'Upload not found.');
+  requirePerson(caller, job.person_id);
+  if (job.status === 'approved') throw new HttpError(409, 'This one has already been filed.');
+
+  // Scans are deleted with the job: an abandoned upload should leave nothing behind.
+  const { results: files } = await c.env.DB.prepare(
+    `SELECT r2_key FROM job_files WHERE job_id = ?`
+  ).bind(jobId).all<{ r2_key: string }>();
+  for (const f of files) { try { await c.env.DOCS.delete(f.r2_key); } catch { /* already gone */ } }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE jobs SET status='rejected', message='Discarded.', updated_at=datetime('now') WHERE job_id = ?`).bind(jobId),
+    c.env.DB.prepare(`INSERT INTO audit_log (actor, action, ref_id) VALUES (?, 'rejected', ?)`).bind(caller.email, jobId),
+  ]);
+  return c.json({ ok: true });
+});
+
+/** Anything waiting on the reviewer, across everyone this caller can see. */
+app.get('/api/inbox', async (c) => {
+  const s = scopeClause(c.get('caller'), 'j.person_id');
+  const { results } = await c.env.DB.prepare(
+    `SELECT j.job_id, j.status, j.message, j.updated_at, p.name person,
+            (SELECT COUNT(*) FROM job_files f WHERE f.job_id = j.job_id) files
+       FROM jobs j JOIN people p USING (person_id)
+      WHERE j.status IN ('queued','reading','review','error') AND ${s.sql}
+      ORDER BY CASE j.status WHEN 'error' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, j.updated_at DESC
+      LIMIT 40`
+  ).bind(...s.binds).all();
+  return c.json(results);
+});
+
 /* ------------------------------------------------------------------ */
 /* 3c. Exports — the "you are not locked in" guarantee                 */
 /* ------------------------------------------------------------------ */
@@ -487,10 +559,67 @@ export default {
   /** Background document reading. Retries and failures are handled by the queue. */
   async queue(batch: MessageBatch<OcrMessage>, env: Env) {
     for (const msg of batch.messages) {
-      // Implemented next: fetch from R2, call Gemini with the v4 prompt
-      // and schema, normalise, write extraction JSON, set job status to 'review'.
-      console.log('OCR job queued', msg.body.jobFileId);
-      msg.ack();
+      const { jobId, jobFileId, r2Key, mimeType } = msg.body;
+      try {
+        await env.DB.prepare(
+          `UPDATE job_files SET ai_status='reading', attempts=attempts+1 WHERE job_file_id = ?`
+        ).bind(jobFileId).run();
+        await env.DB.prepare(
+          `UPDATE jobs SET status='reading', message='Reading the document\u2026', updated_at=datetime('now')
+            WHERE job_id = ? AND status <> 'review'`
+        ).bind(jobId).run();
+
+        const job = await env.DB.prepare(
+          `SELECT j.user_date, p.name person FROM jobs j JOIN people p USING (person_id) WHERE j.job_id = ?`
+        ).bind(jobId).first<{ user_date: string | null; person: string }>();
+        const file = await env.DB.prepare(
+          `SELECT file_name FROM job_files WHERE job_file_id = ?`
+        ).bind(jobFileId).first<{ file_name: string }>();
+
+        const bytes = await getDocument(env, r2Key);
+        const extraction = await readDocument(
+          env, bytes, mimeType, job?.person ?? 'Unknown', job?.user_date ?? null, file?.file_name ?? 'document'
+        );
+
+        await env.DB.prepare(
+          `UPDATE job_files SET ai_status='done', ai_json=?, last_error='' WHERE job_file_id = ?`
+        ).bind(JSON.stringify(extraction), jobFileId).run();
+
+        // Only assemble the review once every file in the batch has been read.
+        const pending = await env.DB.prepare(
+          `SELECT COUNT(*) n FROM job_files WHERE job_id = ? AND ai_status <> 'done'`
+        ).bind(jobId).first<{ n: number }>();
+
+        if (!pending?.n) {
+          const { results } = await env.DB.prepare(
+            `SELECT ai_json FROM job_files WHERE job_id = ? ORDER BY file_index`
+          ).bind(jobId).all<{ ai_json: string }>();
+          const merged = mergeExtractions(
+            results.map((r) => JSON.parse(r.ai_json)),
+            job?.user_date || new Date().toISOString().slice(0, 10)
+          );
+          if (!merged.summary) merged.summary = 'Document filed; add a short summary.';
+
+          await env.DB.prepare(
+            `UPDATE jobs SET status='review', message='Ready for you to check.', extraction=?,
+                    updated_at=datetime('now') WHERE job_id = ?`
+          ).bind(JSON.stringify(merged), jobId).run();
+        }
+
+        msg.ack();
+      } catch (err) {
+        const detail = String(err instanceof Error ? err.message : err).slice(0, 400);
+        await env.DB.prepare(
+          `UPDATE job_files SET ai_status='error', last_error=? WHERE job_file_id = ?`
+        ).bind(detail, jobFileId).run();
+        await env.DB.prepare(
+          `UPDATE jobs SET status='error', message=?, updated_at=datetime('now') WHERE job_id = ?`
+        ).bind(detail, jobId).run();
+
+        // Retry transient failures; give up on ones a retry cannot fix.
+        if (/too long|declined|not configured|No Gemini key/i.test(detail)) msg.ack();
+        else msg.retry();
+      }
     }
   },
 
