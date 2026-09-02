@@ -1,5 +1,7 @@
 -- Auto-generated from the v4 Apps Script seed tables. Do not hand-edit;
 -- corrections belong in the app, which writes back to these tables.
+-- Rows are inserted in batches of 50: SQLite limits how many rows a single
+-- INSERT ... VALUES statement may carry.
 
 INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, source) VALUES
   ('hb', 'Haemoglobin', 'Haemoglobin', 'g/dL', 'seed'),
@@ -51,7 +53,9 @@ INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, s
   ('fastingbloodsugar', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
   ('fastingglucose', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
   ('glucosefasting', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
-  ('bloodglucosefasting', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
+  ('bloodglucosefasting', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed');
+
+INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, source) VALUES
   ('fastingplasmaglucose', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
   ('fpg', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
   ('sugarfasting', 'Fasting Blood Sugar', 'Fasting Blood Sugar', 'mg/dL', 'seed'),
@@ -101,7 +105,9 @@ INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, s
   ('bloodurea', 'Urea', 'Urea', 'mg/dL', 'seed'),
   ('serumurea', 'Urea', 'Urea', 'mg/dL', 'seed'),
   ('bun', 'Blood Urea Nitrogen', 'Blood Urea Nitrogen', 'mg/dL', 'seed'),
-  ('bloodureanitrogen', 'Blood Urea Nitrogen', 'Blood Urea Nitrogen', 'mg/dL', 'seed'),
+  ('bloodureanitrogen', 'Blood Urea Nitrogen', 'Blood Urea Nitrogen', 'mg/dL', 'seed');
+
+INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, source) VALUES
   ('creatinine', 'Creatinine', 'Creatinine', 'mg/dL', 'seed'),
   ('serumcreatinine', 'Creatinine', 'Creatinine', 'mg/dL', 'seed'),
   ('creatinineserum', 'Creatinine', 'Creatinine', 'mg/dL', 'seed'),
@@ -151,7 +157,9 @@ INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, s
   ('gammaglutamyltransferase', 'GGT', 'GGT', 'U/L', 'seed'),
   ('totalprotein', 'Total Protein', 'Total Protein', 'g/dL', 'seed'),
   ('serumtotalprotein', 'Total Protein', 'Total Protein', 'g/dL', 'seed'),
-  ('proteintotal', 'Total Protein', 'Total Protein', 'g/dL', 'seed'),
+  ('proteintotal', 'Total Protein', 'Total Protein', 'g/dL', 'seed');
+
+INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, source) VALUES
   ('albumin', 'Albumin', 'Albumin', 'g/dL', 'seed'),
   ('serumalbumin', 'Albumin', 'Albumin', 'g/dL', 'seed'),
   ('globulin', 'Globulin', 'Globulin', 'g/dL', 'seed'),
@@ -201,7 +209,9 @@ INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, s
   ('tsat', 'Transferrin Saturation', 'Transferrin Saturation', '%', 'seed'),
   ('crp', 'CRP', 'CRP', 'mg/L', 'seed'),
   ('creactiveprotein', 'CRP', 'CRP', 'mg/L', 'seed'),
-  ('hscrp', 'hs-CRP', 'hs-CRP', 'mg/L', 'seed'),
+  ('hscrp', 'hs-CRP', 'hs-CRP', 'mg/L', 'seed');
+
+INSERT OR IGNORE INTO parameter_aliases (alias_key, original, parameter, unit, source) VALUES
   ('highsensitivitycrp', 'hs-CRP', 'hs-CRP', 'mg/L', 'seed'),
   ('ddimer', 'D-Dimer', 'D-Dimer', 'ng/mL', 'seed'),
   ('procalcitonin', 'Procalcitonin', 'Procalcitonin', 'ng/mL', 'seed'),
@@ -294,7 +304,9 @@ INSERT OR IGNORE INTO unit_conversions (parameter, from_unit_key, to_unit, multi
   ('Temperature', 'f', '°C', 0.5556, -17.7778),
   ('Temperature', 'degf', '°C', 0.5556, -17.7778),
   ('Temperature', 'fahrenheit', '°C', 0.5556, -17.7778),
-  ('Weight', 'lb', 'kg', 0.4536, 0),
+  ('Weight', 'lb', 'kg', 0.4536, 0);
+
+INSERT OR IGNORE INTO unit_conversions (parameter, from_unit_key, to_unit, multiply_by, add_offset) VALUES
   ('Weight', 'lbs', 'kg', 0.4536, 0),
   ('Weight', 'pounds', 'kg', 0.4536, 0),
   ('Height', 'in', 'cm', 2.54, 0),
