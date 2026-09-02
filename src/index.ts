@@ -20,6 +20,7 @@ import { readDocument, mergeExtractions, normalise, type Extraction } from './ge
 import { approveJob } from './approve';
 import { records } from './records';
 import { events } from './events';
+import { care, refreshReminders, nextDue, upsertReminder } from './care';
 import { displayDate, parseDate, today as todayIso } from './format';
 import { handoutHtml } from './handout';
 
@@ -244,6 +245,7 @@ app.get('/api/snapshot', async (c) => {
   ]);
 
   return c.json({
+    nextDue: await nextDue(c.env, person),
     profile: profile.results[0] ?? null,
     activeMedicines: meds.results,
     openFollowUps: followUps.results,
@@ -260,16 +262,21 @@ app.get('/api/snapshot', async (c) => {
 app.post('/api/uploads', async (c) => {
   const caller = c.get('caller');
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
-  const body = await c.req.json<{ person?: string; date?: string; careEventId?: string }>();
+  const body = await c.req.json<{
+    person?: string; date?: string; careEventId?: string;
+    batchId?: string; autoEpisode?: boolean;
+  }>();
   // The person is optional. If it is not given, the reader works out who the
   // report belongs to from the name printed on it.
   const person = body.person ? requirePerson(caller, body.person) : null;
   const jobId = crypto.randomUUID();
 
   await c.env.DB.prepare(
-    `INSERT INTO jobs (job_id, person_id, care_event_id, user_date, status, message, created_by)
-     VALUES (?, ?, ?, ?, 'draft', 'Add files, then submit.', ?)`
-  ).bind(jobId, person, body.careEventId || null, body.date || todayIso(), caller.email).run();
+    `INSERT INTO jobs (job_id, person_id, care_event_id, user_date, status, message,
+                       created_by, batch_id, auto_episode)
+     VALUES (?, ?, ?, ?, 'draft', 'Add files, then submit.', ?, ?, ?)`
+  ).bind(jobId, person, body.careEventId || null, body.date || todayIso(), caller.email,
+         body.batchId || null, body.autoEpisode ? 1 : 0).run();
 
   return c.json({ jobId });
 });
@@ -404,10 +411,46 @@ app.post('/api/uploads/:jobId/approve', async (c) => {
   ).bind(jobId).all<any>();
   if (!files.length) throw new HttpError(400, 'No document is attached to this upload.');
 
+  let careEventId: string | null = job.care_event_id;
+
+  // Several reports sent together belong to one visit or admission. The first
+  // one approved creates the episode; the rest join it.
+  if (!careEventId && job.auto_episode && job.batch_id) {
+    const sibling = await c.env.DB.prepare(
+      `SELECT care_event_id FROM jobs
+        WHERE batch_id = ? AND person_id = ? AND care_event_id IS NOT NULL LIMIT 1`
+    ).bind(job.batch_id, job.person_id).first<{ care_event_id: string }>();
+
+    if (sibling) careEventId = sibling.care_event_id;
+    else {
+      careEventId = crypto.randomUUID();
+      await c.env.DB.prepare(
+        `INSERT INTO care_events (care_event_id, person_id, event_date, event_type, title, facility)
+         VALUES (?,?,?,?,?,?)`
+      ).bind(careEventId, job.person_id, data.event_date, data.record_type || 'Other',
+             (data.facility ? data.facility + ' — ' : '') + displayDate(data.event_date),
+             data.facility || '').run();
+    }
+    await c.env.DB.prepare(`UPDATE jobs SET care_event_id = ? WHERE job_id = ?`)
+      .bind(careEventId, jobId).run();
+  }
+
   const out = await approveJob(
-    c.env, jobId, job.person_id, job.person_name, job.care_event_id, data, files, caller.email
+    c.env, jobId, job.person_id, job.person_name, careEventId, data, files, caller.email
   );
-  return c.json(out);
+
+  // Anything the report asks you to come back for becomes a reminder at once,
+  // rather than waiting for tonight's sweep.
+  for (const f of data.follow_ups) {
+    if (!f.due_date) continue;
+    await upsertReminder(c.env, {
+      personId: job.person_id, kind: 'followup', sourceRef: null,
+      title: f.instruction || f.type || 'Follow-up',
+      detail: 'From ' + (data.facility || data.record_type), dueDate: f.due_date,
+    });
+  }
+
+  return c.json({ ...out, careEventId });
 });
 
 app.post('/api/uploads/:jobId/reject', async (c) => {
@@ -542,6 +585,54 @@ app.get('/api/bootstrap', async (c) => {
   });
 });
 
+
+/** Rename a person. Names get read off reports, so they need correcting. */
+app.put('/api/people/:id', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role !== 'owner') throw new HttpError(403, 'Only the owner can rename people.');
+  const id = requirePerson(caller, c.req.param('id'));
+  const { name } = await c.req.json<{ name: string }>();
+  const clean = String(name ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!clean) throw new HttpError(400, 'Enter a name.');
+
+  const clash = await c.env.DB.prepare(
+    `SELECT person_id FROM people WHERE lower(name) = lower(?) AND person_id <> ?`
+  ).bind(clean, id).first();
+  if (clash) throw new HttpError(409, `${clean} already exists. Merge them instead.`);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE people SET name = ? WHERE person_id = ?`).bind(clean, id),
+    c.env.DB.prepare(`INSERT INTO audit_log (actor, action, ref_id, detail) VALUES (?, 'person_renamed', ?, ?)`)
+      .bind(caller.email, id, clean),
+  ]);
+  return c.json({ ok: true, name: clean });
+});
+
+/**
+ * Merge one person into another. Auto-created people are the reason this
+ * exists: a report that reads "R. Arora" makes a second Reena, and you need a
+ * way to put the two back together without losing anything.
+ */
+app.post('/api/people/:id/merge', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role !== 'owner') throw new HttpError(403, 'Only the owner can merge people.');
+  const from = requirePerson(caller, c.req.param('id'));
+  const { into } = await c.req.json<{ into: string }>();
+  requirePerson(caller, into);
+  if (from === into) throw new HttpError(400, 'Those are the same person.');
+
+  const tables = ['records', 'documents', 'test_results', 'medicines', 'diagnoses',
+                  'follow_ups', 'bills', 'timeline', 'care_events', 'jobs'];
+  await c.env.DB.batch([
+    ...tables.map((t) => c.env.DB.prepare(`UPDATE ${t} SET person_id = ? WHERE person_id = ?`).bind(into, from)),
+    c.env.DB.prepare(`DELETE FROM profiles WHERE person_id = ?`).bind(from),
+    c.env.DB.prepare(`UPDATE people SET active = 0 WHERE person_id = ?`).bind(from),
+    c.env.DB.prepare(`INSERT INTO audit_log (actor, action, ref_id, detail) VALUES (?, 'person_merged', ?, ?)`)
+      .bind(caller.email, from, into),
+  ]);
+  return c.json({ ok: true });
+});
+
 /* ------------------------------------------------------------------ */
 /* 3c. Exports — the "you are not locked in" guarantee                 */
 /* ------------------------------------------------------------------ */
@@ -614,6 +705,7 @@ app.get('/api/documents/:documentId/file', async (c) => {
 
 app.route('/api/records', records);
 app.route('/api/events', events);
+app.route('/api/care', care);
 
 /* ------------------------------------------------------------------ */
 /* 3d. Profile, search, dashboard, documents, handout                  */
@@ -790,6 +882,34 @@ function requirePerson(caller: Caller, personId?: string | null): string {
 }
 
 /**
+ * Create a person from a name printed on a report. Titles are stripped and the
+ * name is title-cased, because labs shout: "MRS. REENA ARORA".
+ */
+async function createPersonFromReport(env: Env, printed: string): Promise<string> {
+  const clean = printed
+    .replace(/\b(mr|mrs|ms|miss|dr|shri|smt|master|baby)\b\.?/gi, '')
+    .replace(/[^A-Za-z .'-]/g, ' ').replace(/\s+/g, ' ').trim()
+    .split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ').slice(0, 60) || 'Unnamed';
+
+  const existing = await env.DB.prepare(
+    `SELECT person_id FROM people WHERE lower(name) = lower(?)`
+  ).bind(clean).first<{ person_id: string }>();
+  if (existing) return existing.person_id;
+
+  const id = crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO people (person_id, name, sort_order) VALUES (?, ?, (SELECT COUNT(*) FROM people))`
+    ).bind(id, clean),
+    env.DB.prepare(`INSERT INTO profiles (person_id) VALUES (?)`).bind(id),
+    env.DB.prepare(`INSERT INTO audit_log (action, ref_id, detail) VALUES ('person_auto_created', ?, ?)`)
+      .bind(id, printed),
+  ]);
+  return id;
+}
+
+/**
  * Match a name printed on a report to a person on file. Reports write names in
  * every possible way — "Mrs. REENA ARORA", "Arora, Reena", "R. Arora" — so
  * compare on the parts, not the whole string.
@@ -872,8 +992,13 @@ export default {
               `UPDATE jobs SET person_id = ?, detected_name = ? WHERE job_id = ? AND person_id IS NULL`
             ).bind(match, extraction.patient_name, jobId).run();
           } else {
-            await env.DB.prepare(`UPDATE jobs SET detected_name = ? WHERE job_id = ?`)
-              .bind(extraction.patient_name, jobId).run();
+            // Nobody matched. Rather than stranding the report, file it under a
+            // new person and flag it, so the reviewer renames or merges instead
+            // of hunting for where their upload went.
+            const created = await createPersonFromReport(env, extraction.patient_name);
+            await env.DB.prepare(
+              `UPDATE jobs SET person_id = ?, detected_name = ? WHERE job_id = ? AND person_id IS NULL`
+            ).bind(created, extraction.patient_name, jobId).run();
           }
         }
 
@@ -921,7 +1046,23 @@ export default {
 
   /** Nightly: push the readable copy into your Google Sheet, expire old shares. */
   async scheduled(_event: ScheduledController, env: Env) {
-    // Implemented in Part 3.
-    console.log('nightly maintenance');
+    try {
+      const { created } = await refreshReminders(env);
+      await env.DB.prepare(
+        `INSERT INTO audit_log (action, detail) VALUES ('reminders_refreshed', ?)`
+      ).bind(created + ' checked').run();
+
+      // Expire share links whose time is up.
+      await env.DB.prepare(
+        `UPDATE shares SET revoked = 1 WHERE revoked = 0 AND expires_at < datetime('now')`
+      ).run();
+
+      // Keep the audit log from growing without limit.
+      await env.DB.prepare(
+        `DELETE FROM audit_log WHERE id < (SELECT MAX(id) - 20000 FROM audit_log)`
+      ).run();
+    } catch (err) {
+      console.error('nightly maintenance failed', err);
+    }
   },
 };
