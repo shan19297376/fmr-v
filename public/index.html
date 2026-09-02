@@ -61,6 +61,16 @@
   }
   .note strong{color:var(--ink);display:block;margin-bottom:4px;font-weight:600}
   a{color:var(--deep)}
+
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0 0;padding-top:18px;border-top:1px solid var(--line)}
+  .bar button{
+    border:1px solid var(--line);background:#fff;color:var(--deep);
+    padding:9px 15px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:500;
+  }
+  .bar button:hover{border-color:var(--deep)}
+  .bar button:disabled{opacity:.55;cursor:default}
+  .bar .add{background:var(--deep);border-color:var(--deep);color:#fff}
+  .status{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px}
   @media (max-width:420px){ .detail{padding-left:0} }
 </style>
 </head>
@@ -75,6 +85,13 @@
   <div id="content">
     <div class="note"><strong>Loading</strong>Checking who you are.</div>
   </div>
+
+  <div class="bar" id="bar" hidden>
+    <button class="add" id="addPerson">Add a person</button>
+    <button id="dlWorkbook">Download spreadsheet</button>
+    <button id="dlDocuments">Download scans</button>
+  </div>
+  <div class="status" id="status"></div>
 </main>
 
 <script>
@@ -96,23 +113,83 @@ async function boot() {
     const me = await get('/api/me');
     $('who').textContent = me.email;
 
-    people = await get('/api/people');
-    if (!people.length) {
-      return note('No one added yet',
-        'The database is live and you are signed in as the owner. Adding family members comes with the next update.');
-    }
+    $('bar').hidden = false;
+    await loadPeople();
 
-    $('people').innerHTML = people.map((p, i) =>
-      `<button aria-pressed="${i === 0}" data-id="${p.person_id}">${p.name}</button>`).join('');
-    $('people').onclick = (e) => {
-      const b = e.target.closest('button');
-      if (b) select(b.dataset.id);
-    };
-    select(people[0].person_id);
   } catch (err) {
     note('Cannot load your records', err.message);
   }
 }
+
+async function loadPeople() {
+  people = await get('/api/people');
+  if (!people.length) {
+    $('people').innerHTML = '';
+    return note('No one added yet', 'Add the first family member to start filing records.');
+  }
+  $('people').innerHTML = people.map((p, i) =>
+    `<button aria-pressed="${i === 0}" data-id="${p.person_id}">${esc(p.name)}</button>`).join('');
+  $('people').onclick = (e) => {
+    const b = e.target.closest('button');
+    if (b) select(b.dataset.id);
+  };
+  select(people[0].person_id);
+}
+
+$('addPerson').onclick = async () => {
+  const name = prompt('Name of the family member');
+  if (!name) return;
+  try {
+    const res = await fetch('/api/people', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || 'Could not add that person.');
+    $('status').textContent = `${body.name} added.`;
+    await loadPeople();
+  } catch (err) {
+    $('status').textContent = err.message;
+  }
+};
+
+/**
+ * Downloads go through fetch rather than a plain link so an error arrives as a
+ * readable message instead of a browser saving a file full of JSON.
+ */
+async function download(path, button, label) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Preparing\u2026';
+  $('status').textContent = '';
+  try {
+    const res = await fetch(path, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed.');
+
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || label;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+    const included = res.headers.get('X-Documents-Included');
+    const total = res.headers.get('X-Documents-Total');
+    $('status').textContent = included
+      ? `Saved ${name} \u2014 ${included} of ${total} documents.`
+      : `Saved ${name}.`;
+  } catch (err) {
+    $('status').textContent = err.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+$('dlWorkbook').onclick = (e) => download('/api/export/workbook', e.target, 'records.xlsx');
+$('dlDocuments').onclick = (e) => download('/api/export/documents', e.target, 'documents.zip');
 
 async function select(personId) {
   current = personId;
