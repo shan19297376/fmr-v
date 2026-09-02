@@ -153,7 +153,7 @@ app.get('/api/people', async (c) => {
 /**
  * The whole history for one person, one page at a time.
  * In v4 this needed a hidden index sheet per person, rebuilt on every write.
- * Here it is a view and an index, always current, no rebuild.
+ * Here it is one indexed table, appended to as records are filed, never rebuilt.
  */
 app.get('/api/timeline', async (c) => {
   const caller = c.get('caller');
@@ -167,8 +167,8 @@ app.get('/api/timeline', async (c) => {
 
   const { results } = await c.env.DB.prepare(
     `SELECT kind, ref_id, date, title, value, detail, flag, care_event_id
-       FROM v_timeline
-      WHERE person_id = ? ${kindSql}
+       FROM timeline
+      WHERE person_id = ? AND deleted = 0 ${kindSql}
       ORDER BY date DESC, kind
       LIMIT ? OFFSET ?`
   ).bind(...binds, size + 1, page * size).all();
