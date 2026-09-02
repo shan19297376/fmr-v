@@ -39,7 +39,7 @@
   "triggers": { "crons": ["30 21 * * *"] },
 
   "vars": {
-       "ACCESS_TEAM_DOMAIN": "silent-surf-ef13.cloudflareaccess.com",
+       "ACCESS_TEAM_DOMAIN": "vishal-fmr-team.cloudflareaccess.com",
     "TIMEZONE": "Asia/Kolkata",
     "APP_TITLE": "Family Medical Records"
   },
