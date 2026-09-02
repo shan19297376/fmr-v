@@ -16,7 +16,8 @@
   --deep:#0d3540; --deep-2:#17545f; --tint:#e9f1f2;
   --alert:#a8433a; --alert-tint:#fbeeec;
   --ok:#2c6a4f; --warn:#8a6321;
-  --sh:0 1px 2px rgba(13,53,64,.05), 0 6px 18px rgba(13,53,64,.05);
+  --sh:0 1px 2px rgba(13,53,64,.04), 0 8px 24px -12px rgba(13,53,64,.18);
+  --sh-lift:0 2px 4px rgba(13,53,64,.05), 0 14px 34px -14px rgba(13,53,64,.28);
   --nav-h:60px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -69,7 +70,10 @@ nav .badge{position:absolute;transform:translate(11px,-4px);background:var(--ale
   nav button svg{width:17px;height:17px}
 }
 
-main{max-width:900px;margin:0 auto;padding:18px 16px calc(var(--nav-h) + 40px)}
+main{max-width:900px;margin:0 auto;padding:18px 16px calc(var(--nav-h) + 40px);
+  animation:enter .22s cubic-bezier(.2,.7,.3,1)}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (min-width:760px){ main{padding-bottom:50px} }
 
 /* ---------- structure ---------- */
@@ -105,7 +109,8 @@ section{margin-bottom:24px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;
   padding:13px 14px;text-align:left;box-shadow:var(--sh)}
-.tile:active{background:var(--tint)}
+.tile{transition:transform .12s ease, box-shadow .12s ease}
+.tile:active{transform:scale(.985);box-shadow:var(--sh-lift)}
 .tile b{display:block;font-size:14px;margin-bottom:3px;line-height:1.3}
 .tile span{font-size:12px;color:var(--muted)}
 .tile .flag{color:var(--alert);font-weight:600}
@@ -137,6 +142,26 @@ input[type=file]{padding:9px;font-size:13px}
 .chips button{background:#fff;border:1px solid var(--line);color:var(--muted);
   padding:7px 14px;border-radius:999px;font-size:13px;white-space:nowrap;flex:0 0 auto}
 .chips button[aria-pressed=true]{background:var(--deep);border-color:var(--deep);color:#fff}
+.chips button{transition:background .12s ease,color .12s ease}
+.opt{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:var(--muted);
+  margin:2px 0 12px;line-height:1.4;cursor:pointer}
+.opt input{width:19px;height:19px;flex:0 0 auto;margin:1px 0 0;accent-color:var(--deep)}
+.due-hero{background:linear-gradient(160deg,var(--deep) 0%,var(--deep-2) 100%);color:#fff;
+  border-radius:14px;padding:18px 18px 16px;box-shadow:var(--sh-lift);margin-bottom:20px}
+.due-hero .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#9dc4cd}
+.due-hero .big{font-size:19px;font-weight:600;margin:5px 0 2px;line-height:1.3}
+.due-hero .when{font-size:13px;color:#bcd9e0}
+.due-hero.none{background:var(--card);color:var(--muted);box-shadow:var(--sh)}
+.due-hero.none .lbl{color:var(--faint)}
+
+/* Skeletons: the screen keeps its shape while data arrives, so nothing jumps. */
+.sk{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--sh);overflow:hidden}
+.sk div{height:14px;margin:14px 15px;border-radius:5px;
+  background:linear-gradient(90deg,var(--line-2) 25%,#f7fafb 50%,var(--line-2) 75%);
+  background-size:280% 100%;animation:shim 1.15s ease-in-out infinite}
+.sk div:nth-child(2){width:72%} .sk div:nth-child(3){width:55%}
+@keyframes shim{to{background-position:-180% 0}}
 .status{font-size:13px;color:var(--muted);margin-top:9px;min-height:18px}
 .status.err{color:var(--alert)} .status.ok{color:var(--ok)}
 .warnbox{background:#fdf6ec;border:1px solid #eddcc2;border-radius:9px;
@@ -246,9 +271,14 @@ async function cached(path, onFresh) {
   if (hit !== undefined) { fresh.then((d) => { if (onFresh) onFresh(d); }).catch(() => {}); return hit; }
   return fresh;
 }
+/** Has this screen been visited before? If so it paints instantly, no skeleton. */
+const warmed = new Set();
+function cacheWarm(view) { const had = warmed.has(view); warmed.add(view); return had; }
 const bust = (prefix) => [...cache.keys()].forEach((k) => { if (k.includes(prefix)) cache.delete(k); });
 const post = (p,b) => api(p, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
 const put  = (p,b) => api(p, {method:'PUT',  headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
+const skeleton = (n) => '<div class="sk">' +
+  Array.from({length:n||3}, () => '<div></div><div></div><div></div>').join('') + '</div>';
 const setStatus = (id, text, cls) => { const e = $(id); if (e) { e.className = 'status'+(cls?' '+cls:''); e.textContent = text; } };
 
 let app = null, people = [], current = null;
@@ -259,7 +289,7 @@ const TABS = [
   ['upload','Add','M12 5v14M5 12h14'],
   ['overview','Overview','M4 12h5l2 6 3-13 2 7h4'],
   ['tests','Tests','M4 19h16M7 19V9M12 19V5M17 19v-7'],
-  ['history','History','M4 6h16M4 12h16M4 18h10'],
+  ['due','Due','M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'],
   ['more','More','M5 12h.01M12 12h.01M19 12h.01'],
 ];
 
@@ -281,7 +311,9 @@ const VIEWS = {
   tests:    { title:'Tests',              tab:'tests',    fn:viewPanels },
   panel:    { title:'Panel',              tab:'tests',    fn:viewPanel,  deep:true },
   trend:    { title:'Trend',              tab:'tests',    fn:viewTrend,  deep:true },
-  history:  { title:'History',            tab:'history',  fn:viewHistory },
+  due:      { title:'Due',                tab:'due',      fn:viewDue },
+  medicines:{ title:'Medicines',          tab:'due',      fn:viewMedicines, deep:true },
+  history:  { title:'History',            tab:'more',     fn:viewHistory,   deep:true },
   more:     { title:'More',               tab:'more',     fn:viewMore },
   episodes: { title:'Episodes of care',   tab:'more',     fn:viewEpisodes, deep:true },
   settings: { title:'Details & exports',  tab:'more',     fn:viewSettings, deep:true },
@@ -294,6 +326,7 @@ function route() {
   $('back').hidden = !def.deep;
   [...$('nav').children].forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === def.tab));
   window.scrollTo(0, 0);
+  if (!cacheWarm(view)) $('main').innerHTML = skeleton(3);
   Promise.resolve(def.fn(p)).catch((err) => {
     $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
   });
@@ -332,12 +365,20 @@ function paintPeople() {
   $('people').innerHTML = people.map((p) =>
     '<button data-id="'+p.person_id+'" aria-pressed="'+(p.person_id===current)+'">'+esc(p.name)+'</button>'
   ).join('') + '<button class="new" data-add="1">+ Person</button>';
+  let held = null;
   $('people').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.add) return addPerson();
+    // Tapping the person you are already on opens their card.
+    if (b.dataset.id === current) return personSheet(b.dataset.id);
     current = b.dataset.id;
     [...$('people').children].forEach((x) => x.setAttribute('aria-pressed', x.dataset.id === current));
+    cache.clear(); warmed.clear();
     route();
+  };
+  $('people').oncontextmenu = (e) => {
+    const b = e.target.closest('[data-id]');
+    if (b) { e.preventDefault(); personSheet(b.dataset.id); }
   };
 }
 
@@ -346,14 +387,56 @@ async function addPerson() {
   if (!name) return;
   try {
     const r = await post('/api/people', { name });
-    cache.clear();
-    app = await api('/api/bootstrap');
-    people = app.people; current = r.personId;
-    paintPeople(); route();
+    current = r.personId;
+    await refreshPeople();
   } catch (err) { alert(err.message); }
 }
 
 const person = () => people.find((p) => p.person_id === current) || {};
+
+/** Rename, or merge a duplicate the reader created from a misread name. */
+function personSheet(id) {
+  const p = people.find((x) => x.person_id === id) || {};
+  const others = people.filter((x) => x.person_id !== id);
+  sheet('<h3>' + esc(p.name) + '</h3>' +
+    '<div class="field"><label for="pnName">Name</label><input type="text" id="pnName" value="'+esc(p.name)+'"></div>' +
+    '<div class="field"><button class="go" id="pnSave">Save name</button>' +
+    '<button class="ghost" id="closeSheet">Close</button></div>' +
+    (others.length
+      ? '<div class="sub" style="margin-top:16px">If this is the same person as someone else, merge them. ' +
+        'Everything moves across and nothing is lost.</div>' +
+        '<div class="field"><label for="pnMerge">Merge into</label><select id="pnMerge">' +
+        '<option value="">Choose\u2026</option>' +
+        others.map((o) => '<option value="'+o.person_id+'">'+esc(o.name)+'</option>').join('') +
+        '</select><button class="ghost danger" id="pnMergeGo">Merge</button></div>' : '') +
+    '<div class="status" id="pnStatus"></div>');
+
+  $('pnSave').onclick = async () => {
+    try {
+      await put('/api/people/' + id, { name: $('pnName').value });
+      await refreshPeople(); closeSheet();
+    } catch (err) { setStatus('pnStatus', err.message, 'err'); }
+  };
+  if ($('pnMergeGo')) $('pnMergeGo').onclick = async () => {
+    const into = $('pnMerge').value;
+    if (!into) return setStatus('pnStatus', 'Choose who to merge into.', 'err');
+    const name = (people.find((x) => x.person_id === into) || {}).name;
+    if (!confirm('Move everything from ' + p.name + ' into ' + name + '?')) return;
+    try {
+      await post('/api/people/' + id + '/merge', { into });
+      current = into;
+      await refreshPeople(); closeSheet();
+    } catch (err) { setStatus('pnStatus', err.message, 'err'); }
+  };
+}
+
+async function refreshPeople() {
+  cache.clear(); warmed.clear();
+  app = await api('/api/bootstrap');
+  people = app.people;
+  if (!people.some((p) => p.person_id === current)) current = people[0] ? people[0].person_id : null;
+  paintPeople(); route();
+}
 
 /* ---------- sheet ---------- */
 
@@ -361,6 +444,8 @@ function sheet(html) {
   $('sheetHost').innerHTML = '<div class="veil" id="veil"><div class="modal"><div class="grab"></div>' + html + '</div></div>';
   $('veil').onclick = (e) => { if (e.target.id === 'veil') closeSheet(); };
   const c = $('closeSheet'); if (c) c.onclick = closeSheet;
+  const first = $('sheetHost').querySelector('input,select,textarea');
+  if (first && window.innerWidth > 600) first.focus();
 }
 function closeSheet() { $('sheetHost').innerHTML = ''; }
 
@@ -384,6 +469,10 @@ async function viewUpload() {
         '<option value="">Not part of one</option>' +
         events.map((e) => '<option value="'+e.care_event_id+'">'+esc(e.title)+' \u00b7 '+fmtShort(e.event_date)+'</option>').join('') +
         '<option value="__new">+ Start a new episode\u2026</option></select></div>' +
+      '<label class="opt"><input type="checkbox" id="upSeparate"> ' +
+        'These are separate reports \u2014 read each on its own</label>' +
+      '<label class="opt" id="upGroupWrap" hidden><input type="checkbox" id="upGroup" checked> ' +
+        'Group them into one episode automatically</label>' +
       '<div class="field"><label></label><button class="go" id="upGo">Upload and read</button></div>' +
       '<div class="status" id="upStatus">Reading happens in the background. Send the next one straight away.</div>' +
     '</div></section>' +
@@ -407,6 +496,7 @@ async function viewUpload() {
     '</div></section>';
 
   $('upEvent').onchange = (e) => { if (e.target.value === '__new') newEpisode(); };
+  $('upSeparate').onchange = (e) => { $('upGroupWrap').hidden = !e.target.checked; };
   $('upGo').onclick = doUpload;
   $('mrGo').onclick = doReading;
   pollInbox();
@@ -445,25 +535,38 @@ async function doUpload() {
   const files = [...$('upFiles').files];
   if (!files.length) return setStatus('upStatus', 'Choose at least one scan.', 'err');
   $('upGo').disabled = true;
+  const separate = $('upSeparate').checked;
+  const group = separate && $('upGroup').checked;
+  const batchId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+  const base = {
+    person: $('upWho').value || undefined,
+    date: $('upDate').value,
+    careEventId: ($('upEvent').value && $('upEvent').value !== '__new') ? $('upEvent').value : undefined,
+  };
+
   try {
-    const job = await post('/api/uploads', {
-      person: $('upWho').value || undefined,
-      date: $('upDate').value,
-      careEventId: ($('upEvent').value && $('upEvent').value !== '__new') ? $('upEvent').value : undefined,
-    });
+    // One job per file when they are separate reports; one job holding all the
+    // pages when they are one report scanned across several files.
+    let job = separate ? null : await post('/api/uploads', base);
+    let skipped = 0;
+
     for (let i = 0; i < files.length; i++) {
       setStatus('upStatus', 'Sending ' + (i+1) + ' of ' + files.length + '\u2026');
+      if (separate) job = await post('/api/uploads',
+        Object.assign({}, base, { batchId, autoEpisode: group }));
+
       const form = new FormData(); form.append('file', files[i]);
       const res = await fetch('/api/uploads/' + job.jobId + '/file',
         { method:'POST', credentials:'same-origin', body: form });
       const body = await res.json();
-      if (res.status === 409 && body.duplicate) {
-        setStatus('upStatus', files[i].name + ' is already filed \u2014 skipped.'); continue;
-      }
+      if (res.status === 409 && body.duplicate) { skipped++; continue; }
       if (!res.ok) throw new Error(body.error || (files[i].name + ' could not be sent.'));
     }
+
     $('upFiles').value = '';
-    setStatus('upStatus', 'Sent. Reading in the background.', 'ok');
+    setStatus('upStatus', (files.length - skipped) + ' sent, reading in the background.' +
+      (skipped ? ' ' + skipped + ' already filed and skipped.' : '') +
+      (group ? ' They will be grouped into one episode.' : ''), 'ok');
     pollInbox();
   } catch (err) { setStatus('upStatus', err.message, 'err'); }
   finally { $('upGo').disabled = false; }
@@ -513,15 +616,19 @@ async function openReview(jobId) {
   const x = job.extraction || {};
   reviewing = { jobId, data: x };
 
-  const who = job.person_id
-    ? '<div class="field"><label>Whose</label><div style="flex:1;font-weight:600">' +
-      esc((people.find((p) => p.person_id === job.person_id) || {}).name || '') +
-      (job.detected_name ? ' <span class="tag">read as ' + esc(job.detected_name) + '</span>' : '') +
-      ' <button class="ghost" id="rvChange">Change</button></div></div>'
-    : '<div class="warnbox">The name on this report did not match anyone on file' +
-      (job.detected_name ? ' (it reads \u201c' + esc(job.detected_name) + '\u201d)' : '') + '. Choose who it belongs to.</div>' +
-      '<div class="field"><label for="rvWho">Whose</label><select id="rvWho"><option value="">Choose\u2026</option>' +
-      people.map((p) => '<option value="'+p.person_id+'">'+esc(p.name)+'</option>').join('') + '</select></div>';
+  const known = people.some((p) => p.person_id === job.person_id);
+  if (job.person_id && !known) await refreshPeople();   // a person was just created for this report
+
+  const who =
+    '<div class="field"><label for="rvWho">Whose</label><select id="rvWho">' +
+    (job.person_id ? '' : '<option value="">Choose\u2026</option>') +
+    people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===job.person_id?' selected':'')+'>'+esc(p.name)+'</option>').join('') +
+    '</select></div>' +
+    (job.detected_name
+      ? '<div class="sub" style="margin:-6px 0 12px">Read from the report as \u201c' + esc(job.detected_name) + '\u201d.' +
+        (job.person_id && !known ? ' Nobody matched, so this person was added \u2014 tap their name at the top to rename or merge.' : '') +
+        '</div>'
+      : '');
 
   $('reviewSec').hidden = false;
   $('reviewSec').innerHTML = '<div class="h"><h2>Check before filing</h2></div><div class="panel">' +
@@ -545,12 +652,6 @@ async function openReview(jobId) {
     '<button class="ghost danger" id="rvDrop">Discard</button></div>' +
     '<div class="status" id="rvStatus"></div></div>';
 
-  if ($('rvChange')) $('rvChange').onclick = () => {
-    $('rvChange').closest('.field').outerHTML =
-      '<div class="field"><label for="rvWho">Whose</label><select id="rvWho">' +
-      people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===job.person_id?' selected':'')+'>'+esc(p.name)+'</option>').join('') +
-      '</select></div>';
-  };
   $('rvGo').onclick = () => fileIt(job);
   $('rvDrop').onclick = () => discard(jobId);
   $('reviewSec').scrollIntoView({ behavior:'smooth', block:'nearest' });
@@ -609,6 +710,12 @@ async function viewOverview() {
       '<tr><td class="k">Ongoing conditions</td><td>'+esc(p.chronic_conditions || 'None recorded')+'</td></tr>' +
       '<tr><td class="k">Last seen</td><td>'+(snap.lastVisit ? esc(fmt(snap.lastVisit.event_date)+' \u00b7 '+(snap.lastVisit.record_type||'')) : '\u2014')+'</td></tr>' +
     '</table></section>' +
+    (snap.nextDue
+      ? '<section><div class="h"><h2>Next up</h2><button class="more" data-goto="due">All due</button></div>' +
+        '<div class="list"><div class="r ' + (snap.nextDue.due_date < app.today ? 'bad' : '') + '">' +
+        '<span class="d num">'+fmtShort(snap.nextDue.due_date)+'</span>' +
+        '<span class="t">'+esc(snap.nextDue.title)+'</span>' +
+        '<span class="v">'+esc(rel(snap.nextDue.due_date))+'</span></div></div></section>' : '') +
     (overdue.length ? '<section><div class="h"><h2>Overdue</h2></div><div class="list">'+fu(overdue,true)+'</div></section>' : '') +
     (upcoming.length ? '<section><div class="h"><h2>Coming up</h2></div><div class="list">'+fu(upcoming,false)+'</div></section>' : '') +
     (snap.abnormalTests.length ? '<section><div class="h"><h2>Out of range</h2></div><div class="list">' +
@@ -616,7 +723,8 @@ async function viewOverview() {
         '<span class="d num">'+fmtShort(t.test_date)+'</span><span class="t">'+esc(t.parameter)+'</span>' +
         '<span class="v num">'+esc([t.result_text,t.unit].filter(Boolean).join(' '))+'</span></div>').join('') +
       '</div></section>' : '') +
-    (snap.activeMedicines.length ? '<section><div class="h"><h2>Current medicines</h2></div><div class="list">' +
+    (snap.activeMedicines.length ? '<section><div class="h"><h2>Current medicines</h2>' +
+      '<button class="more" data-goto="medicines">Manage</button></div><div class="list">' +
       snap.activeMedicines.map((m) => '<div class="r"><span class="d num">'+fmtShort(m.prescribed_on)+'</span>' +
         '<span class="t">'+esc([m.name,m.strength].filter(Boolean).join(' '))+'</span>' +
         '<span class="v">'+esc([m.dose,m.frequency].filter(Boolean).join(' '))+'</span>' +
@@ -631,8 +739,10 @@ async function viewOverview() {
   $('main').onclick = async (e) => {
     const d = e.target.closest('[data-done]');
     const t = e.target.closest('[data-trend]');
+    const g = e.target.closest('[data-goto]');
     if (d) { await post('/api/records/followup/'+d.dataset.done+'/complete', {}); cache.clear(); route(); }
     if (t) go('trend', { parameter: t.dataset.trend });
+    if (g) go(g.dataset.goto);
   };
   $('openHandout').onclick = () => window.open('/api/handout?person=' + current, '_blank');
   $('shareHandout').onclick = async () => {
@@ -769,6 +879,130 @@ async function viewTrend(p) {
 }
 
 /* ================================================================
+   3b. Due — reminders, follow-ups, medicines running out
+   ================================================================ */
+
+async function viewDue() {
+  const r = await cached('/api/care/reminders');
+  const all = r.overdue.concat(r.today, r.upcoming);
+  const next = all[0];
+
+  const row = (x, cls) =>
+    '<div class="r ' + (cls||'') + '"><span class="d num">' + fmtShort(x.due_date) + '</span>' +
+    '<span class="tag">' + esc(x.kind) + '</span>' +
+    '<span class="t">' + esc(x.title) + '</span>' +
+    '<span class="v">' + esc(rel(x.due_date)) + '</span>' +
+    '<button class="ghost" data-rdone="'+x.reminder_id+'">Done</button>' +
+    '<button class="ghost" data-rsnooze="'+x.reminder_id+'">Later</button>' +
+    (x.person ? '<span class="x">' + esc(x.person) + (x.detail ? ' \u00b7 ' + esc(x.detail) : '') + '</span>' : '') +
+    '</div>';
+
+  const group = (title, list, cls) => list.length
+    ? '<section><div class="h"><h2>'+title+'</h2></div><div class="list">' +
+      list.map((x) => row(x, cls)).join('') + '</div></section>' : '';
+
+  $('main').innerHTML =
+    (next
+      ? '<div class="due-hero"><div class="lbl">Next up</div>' +
+        '<div class="big">' + esc(next.title) + '</div>' +
+        '<div class="when">' + esc(next.person || '') + ' \u00b7 ' + esc(fmt(next.due_date)) +
+        ' \u00b7 ' + esc(rel(next.due_date)) + '</div></div>'
+      : '<div class="due-hero none"><div class="lbl">Next up</div>' +
+        '<div class="big" style="color:var(--ink)">Nothing due</div>' +
+        '<div class="when">Follow-ups and medicines running out appear here automatically.</div></div>') +
+    group('Overdue', r.overdue, 'bad') +
+    group('Today', r.today, '') +
+    group('Coming up', r.upcoming, '') +
+    '<section><div class="field">' +
+      '<button class="ghost" id="addRem">Add a reminder</button>' +
+      '<button class="ghost" id="goMeds">Ongoing medicines</button>' +
+    '</div></section>';
+
+  $('main').onclick = async (e) => {
+    const d = e.target.closest('[data-rdone]'), s2 = e.target.closest('[data-rsnooze]');
+    if (d) { await post('/api/care/reminders/'+d.dataset.rdone+'/done', {}); bust('/api/care'); route(); }
+    if (s2) { await post('/api/care/reminders/'+s2.dataset.rsnooze+'/snooze', { days: 7 }); bust('/api/care'); route(); }
+  };
+  $('goMeds').onclick = () => go('medicines');
+  $('addRem').onclick = () => {
+    sheet('<h3>New reminder</h3>' +
+      '<div class="field"><label for="rmTitle">What</label><input type="text" id="rmTitle" placeholder="Repeat lipid profile"></div>' +
+      '<div class="field"><label for="rmDate">When</label><input type="date" id="rmDate" value="'+app.today+'"></div>' +
+      '<div class="field"><label for="rmWho">Whose</label><select id="rmWho">' +
+        people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===current?' selected':'')+'>'+esc(p.name)+'</option>').join('') +
+      '</select></div>' +
+      '<div class="field"><label for="rmRepeat">Repeat</label><select id="rmRepeat">' +
+        '<option value="0">Once</option><option value="30">Monthly</option>' +
+        '<option value="90">Every 3 months</option><option value="180">Every 6 months</option>' +
+        '<option value="365">Yearly</option></select></div>' +
+      '<div class="field"><button class="go" id="rmSave">Add</button>' +
+      '<button class="ghost" id="closeSheet">Cancel</button></div><div class="status" id="rmStatus"></div>');
+    $('rmSave').onclick = async () => {
+      try {
+        await post('/api/care/reminders', { person: $('rmWho').value, title: $('rmTitle').value,
+          due_date: $('rmDate').value, repeat_days: Number($('rmRepeat').value) });
+        bust('/api/care'); closeSheet(); route();
+      } catch (err) { setStatus('rmStatus', err.message, 'err'); }
+    };
+  };
+}
+
+async function viewMedicines() {
+  const d = await cached('/api/care/medicines?person=' + current);
+
+  const row = (m, showActions) =>
+    '<div class="r"><span class="d num">' + fmtShort(m.prescribed_on) + '</span>' +
+    '<span class="t">' + esc([m.name, m.strength].filter(Boolean).join(' ')) + '</span>' +
+    '<span class="v">' + esc([m.dose, m.frequency].filter(Boolean).join(' ')) + '</span>' +
+    (showActions
+      ? '<button class="ghost" data-mstop="'+m.medicine_id+'">Stop</button>' +
+        (m.status === 'unknown' ? '<button class="ghost" data-mgo="'+m.medicine_id+'">Still on it</button>' : '')
+      : '') +
+    '<span class="x">' + (m.end_date ? 'until ' + fmt(m.end_date)
+      : m.status === 'unknown' ? 'no end date recorded' : 'continuing') +
+      (m.doctor ? ' \u00b7 ' + esc(m.doctor) : '') + '</span></div>';
+
+  const block = (title, list, sub, actions) => list.length
+    ? '<section><div class="h"><h2>'+title+'</h2></div>' +
+      (sub ? '<div class="sub">'+sub+'</div>' : '') +
+      '<div class="list">' + list.map((m) => row(m, actions)).join('') + '</div></section>' : '';
+
+  $('main').innerHTML =
+    block('On now', d.active, '', true) +
+    block('Unconfirmed', d.unconfirmed,
+      'No end date was printed on the prescription, so the app will not claim these are current. Confirm or stop each one.', true) +
+    block('Finished', d.past, '', false) +
+    (!d.active.length && !d.unconfirmed.length && !d.past.length
+      ? '<div class="empty">No medicines recorded yet.</div>' : '') +
+    '<section><div class="field"><button class="ghost" id="addMed">Add a medicine</button></div></section>';
+
+  $('main').onclick = async (e) => {
+    const stop = e.target.closest('[data-mstop]'), keep = e.target.closest('[data-mgo]');
+    if (stop) { await post('/api/care/medicines/'+stop.dataset.mstop+'/stop', {}); bust('/api/'); route(); }
+    if (keep) { await post('/api/care/medicines/'+keep.dataset.mgo+'/ongoing', {}); bust('/api/'); route(); }
+  };
+  $('addMed').onclick = () => {
+    sheet('<h3>Add a medicine</h3><div class="sub">For anything without a prescription on file.</div>' +
+      '<div class="field"><label for="amName">Name</label><input type="text" id="amName"></div>' +
+      '<div class="field"><label for="amStr">Strength</label><input type="text" id="amStr" placeholder="500 mg"></div>' +
+      '<div class="field"><label for="amDose">Dose</label><input type="text" id="amDose" placeholder="1-0-1"></div>' +
+      '<div class="field"><label for="amStart">Started</label><input type="date" id="amStart" value="'+app.today+'"></div>' +
+      '<div class="field"><label for="amEnd">Until</label><input type="date" id="amEnd"></div>' +
+      '<label class="opt"><input type="checkbox" id="amOngoing"> Continuing indefinitely</label>' +
+      '<div class="field"><button class="go" id="amSave">Add</button>' +
+      '<button class="ghost" id="closeSheet">Cancel</button></div><div class="status" id="amStatus"></div>');
+    $('amSave').onclick = async () => {
+      try {
+        await post('/api/care/medicines', { person: current, name: $('amName').value,
+          strength: $('amStr').value, dose: $('amDose').value, start_date: $('amStart').value,
+          end_date: $('amEnd').value, ongoing: $('amOngoing').checked });
+        bust('/api/'); closeSheet(); route();
+      } catch (err) { setStatus('amStatus', err.message, 'err'); }
+    };
+  };
+}
+
+/* ================================================================
    4. History
    ================================================================ */
 
@@ -862,6 +1096,7 @@ async function openRecord(kind, id) {
 async function viewMore() {
   $('main').innerHTML =
     '<section><div class="tiles">' +
+      '<button class="tile" data-go="history"><b>Full history</b><span>Everything filed, searchable</span></button>' +
       '<button class="tile" data-go="episodes"><b>Episodes of care</b><span>Group an admission or illness</span></button>' +
       '<button class="tile" data-go="settings"><b>Details &amp; exports</b><span>Profile, spreadsheet, scans</span></button>' +
     '</div></section>';
