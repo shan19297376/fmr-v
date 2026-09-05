@@ -22,7 +22,7 @@
     {
       "binding": "DB",
       "database_name": "fmr",
-         "database_id": "61315fe4-03c3-4ccd-877f-52ee05d690c4",
+      "database_id": "61315fe4-03c3-4ccd-877f-52ee05d690c4",
       "migrations_dir": "migrations"
     }
   ],

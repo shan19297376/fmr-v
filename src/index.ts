@@ -736,6 +736,58 @@ app.post('/api/core/uploads/:jobId/manual', async (c) => {
   return c.json(out);
 });
 
+
+/** One visit with everything filed under it — the view you want in a clinic. */
+app.get('/api/health/records/:recordId', async (c) => {
+  const caller = c.get('caller');
+  const id = c.req.param('recordId');
+
+  const rec = await c.env.DB.prepare(
+    `SELECT r.*, p.name person, e.title episode, e.care_event_id
+       FROM health_records r JOIN core_people p USING (person_id)
+       LEFT JOIN health_care_events e ON e.care_event_id = r.care_event_id
+      WHERE r.record_id = ? AND r.deleted = 0`
+  ).bind(id).first<any>();
+  if (!rec) throw new HttpError(404, 'That record no longer exists.');
+  requirePerson(caller, rec.person_id);
+
+  const [tests, meds, dx, fu, bills, docs] = await c.env.DB.batch([
+    c.env.DB.prepare(`SELECT result_id, parameter, result_text, unit_raw, ref_range_text, is_abnormal
+                        FROM health_test_results WHERE record_id = ? AND deleted = 0 ORDER BY parameter`).bind(id),
+    c.env.DB.prepare(`SELECT medicine_id, name, strength, dose, frequency, duration_text, status, end_date
+                        FROM health_medicines WHERE record_id = ? AND deleted = 0`).bind(id),
+    c.env.DB.prepare(`SELECT diagnosis_id, diagnosis, status FROM health_diagnoses
+                       WHERE record_id = ? AND deleted = 0`).bind(id),
+    c.env.DB.prepare(`SELECT follow_up_id, due_date, type, instruction, status FROM health_follow_ups
+                       WHERE record_id = ? AND deleted = 0`).bind(id),
+    c.env.DB.prepare(`SELECT bill_id, bill_date, vendor, item, medicine_name, line_amount, bill_total,
+                             payment_status FROM health_bills WHERE record_id = ? AND deleted = 0`).bind(id),
+    c.env.DB.prepare(`SELECT document_id, file_name, document_type, document_date, provider, mime_type, bytes
+                        FROM core_documents WHERE record_id = ? AND deleted = 0 ORDER BY document_date`).bind(id),
+  ]);
+
+  return c.json({
+    record: rec, tests: tests.results, medicines: meds.results, diagnoses: dx.results,
+    followUps: fu.results, bills: bills.results, documents: docs.results,
+  });
+});
+
+/** A document's own details: whose, when, which visit, which episode. */
+app.get('/api/core/documents/:documentId', async (c) => {
+  const caller = c.get('caller');
+  const d = await c.env.DB.prepare(
+    `SELECT d.*, p.name person, r.record_type, r.summary record_summary, r.record_id,
+            e.title episode, e.care_event_id
+       FROM core_documents d JOIN core_people p USING (person_id)
+       LEFT JOIN health_records r ON r.record_id = d.record_id
+       LEFT JOIN health_care_events e ON e.care_event_id = r.care_event_id
+      WHERE d.document_id = ? AND d.deleted = 0`
+  ).bind(c.req.param('documentId')).first<any>();
+  if (!d) throw new HttpError(404, 'Document not found.');
+  requirePerson(caller, d.person_id);
+  return c.json(d);
+});
+
 /* ------------------------------------------------------------------ */
 /* 3c. Exports — the "you are not locked in" guarantee                 */
 /* ------------------------------------------------------------------ */

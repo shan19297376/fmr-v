@@ -10,7 +10,7 @@
 
 import {
   $, esc, fmt, fmtShort, rel, api, post, put, cachedGet, bust, clearCache,
-  setStatus, sheet, closeSheet, download, state, person, go, refresh as route,
+  setStatus, sheet, closeSheet, actions, download, state, person, go, refresh as route,
   refreshPeople, personSheet,
 } from '../shell.js';
 
@@ -220,15 +220,13 @@ async function viewReview() {
 }
 
 function newEpisode() {
-  sheet('<h3>New episode</h3><div class="sub">An admission, an illness, a course of treatment.</div>' +
+  sheet('<h3>New episode</h3>' + actions([{ id:'evSave', label:'Create', kind:'go' }, { id:'closeSheet', label:'Cancel' }]) + '<div class="sub">An admission, an illness, a course of treatment.</div>' +
     '<div class="field"><label for="evTitle">What</label><input type="text" id="evTitle" placeholder="Dengue, June 2026"></div>' +
     '<div class="field"><label for="evDate">Started</label><input type="date" id="evDate" value="'+state.account.today+'"></div>' +
     '<div class="field"><label for="evWhere">Hospital</label><input type="text" id="evWhere"></div>' +
     '<div class="field"><label for="evWho">Whose</label><select id="evWho">' +
       state.people.map((p) => '<option value="'+p.person_id+'"'+(p.person_id===state.current?' selected':'')+'>'+esc(p.name)+'</option>').join('') +
     '</select></div>' +
-    '<div class="field"><button class="go" id="evSave">Create</button>' +
-    '<button class="ghost" id="closeSheet">Cancel</button></div>' +
     '<div class="status" id="evStatus"></div>');
 
   $('evSave').onclick = async () => {
@@ -276,6 +274,11 @@ async function openReview(jobId) {
 
   sheet(
     '<h3>' + (manual ? 'Fill in the details' : 'Check before filing') + '</h3>' +
+    actions([
+      { id:'rvGo', label:'File it', kind:'go' },
+      { id:'rvOpen', label:'View scan' },
+      { id:'rvDrop', label:'Discard', danger:true, right:true },
+    ]) +
     (manual
       ? '<div class="sub">The reader could not use this page. Tell it what this is and the ' +
         'scan will be filed and findable. Values can be added later if you need them.</div>'
@@ -327,10 +330,6 @@ async function openReview(jobId) {
         '<span class="v num">'+esc(t.result)+' '+esc(t.unit||'')+'</span></div>').join('') +
       '</div>' : '') +
 
-    '<div class="field" style="margin-top:14px">' +
-      '<button class="go" id="rvGo">File it</button>' +
-      '<button class="ghost" id="rvOpen">View scan</button>' +
-      '<button class="ghost danger" id="rvDrop" style="margin-left:auto">Discard</button></div>' +
     '<div class="status" id="rvStatus"></div>');
 
   $('rvOpen').onclick = () => window.open('/api/core/uploads/' + jobId + '/file/0', '_blank');
@@ -423,6 +422,12 @@ async function viewOverview() {
         '<span class="v">'+esc([m.dose,m.frequency].filter(Boolean).join(' '))+'</span>' +
         (m.end_date ? '' : '<span class="tag">no end date</span>')+'</div>').join('') +
       '</div></section>' : '') +
+    '<section><div class="tiles">' +
+      '<button class="tile" data-goto="due"><b>Everything due</b><span>Reminders and follow-ups</span></button>' +
+      '<button class="tile" data-goto="medicines"><b>Medicines</b><span>On now, unconfirmed, finished</span></button>' +
+      '<button class="tile" data-goto="episodes"><b>Episodes</b><span>Visits and admissions</span></button>' +
+      '<button class="tile" data-goto="settings"><b>Details &amp; exports</b><span>Profile, spreadsheet, scans</span></button>' +
+    '</div></section>' +
     '<section><div class="h"><h2>Doctor handout</h2></div>' +
     '<div class="sub">One page: conditions, medicines, latest results, open follow-ups.</div>' +
     '<div class="field"><button class="ghost" id="openHandout">Open &amp; print</button>' +
@@ -437,7 +442,9 @@ async function viewOverview() {
     if (t) go('trend', { parameter: t.dataset.trend });
     if (g) go(g.dataset.goto);
   };
-  $('openHandout').onclick = () => window.open('/api/health/handout?person=' + state.current, '_blank');
+  // Opening a new tab from a home-screen app replaces the app, and coming back
+  // reboots it on the default screen. Navigating in place keeps history intact.
+  $('openHandout').onclick = () => { location.href = '/api/health/handout?person=' + state.current; };
   $('shareHandout').onclick = async () => {
     try {
       const r = await post('/api/health/handout/share', { person: state.current, hours: 24 });
@@ -514,16 +521,24 @@ async function viewTrend(p) {
     const b = e.target.closest('[data-r]');
     if (b) go('trend', { parameter, range: b.dataset.r }, true);
   };
+  $('main').onclick = (e) => {
+    const r = e.target.closest('[data-rec]');
+    if (r) go('record', { id: r.dataset.rec });
+  };
 
   const d = await cachedGet('/api/health/trends/series?person=' + state.current +
     '&parameter=' + encodeURIComponent(parameter) + '&range=' + range);
   const pts = d.points.filter((x) => x.value_a !== null);
 
+  // Every point links back to the report it came from.
   const table = '<div class="list" style="margin-top:14px">' + d.points.slice().reverse().map((x) =>
-    '<div class="r ' + (x.is_abnormal?'bad':'') + '"><span class="d num">'+fmt(x.test_date)+'</span>' +
+    '<div class="r ' + (x.is_abnormal?'bad':'') + '"' +
+    (x.record_id ? ' data-tap data-rec="'+x.record_id+'"' : '') + '>' +
+    '<span class="d num">'+fmt(x.test_date)+'</span>' +
     '<span class="t num">'+esc(x.result_text)+' '+esc(x.unit||'')+'</span>' +
     '<span class="v">'+esc(x.ref_range_text||'')+'</span>' +
-    (x.lab ? '<span class="x">'+esc(x.lab)+'</span>' : '') + '</div>').join('') + '</div>';
+    '<span class="x">'+esc(x.lab||'')+(x.record_id ? ' \u00b7 tap for the report' : '')+'</span>' +
+    '</div>').join('') + '</div>';
 
   if (!pts.length) {
     $('chartBox').innerHTML = '<div class="empty">No numeric results to plot in this period.' +
@@ -618,7 +633,7 @@ async function viewDue() {
   };
   $('goMeds').onclick = () => go('medicines');
   $('addRem').onclick = () => {
-    sheet('<h3>New reminder</h3>' +
+    sheet('<h3>New reminder</h3>' + actions([{ id:'rmSave', label:'Add', kind:'go' }, { id:'closeSheet', label:'Cancel' }]) + '' +
       '<div class="field"><label for="rmTitle">What</label><input type="text" id="rmTitle" placeholder="Repeat lipid profile"></div>' +
       '<div class="field"><label for="rmDate">When</label><input type="date" id="rmDate" value="'+state.account.today+'"></div>' +
       '<div class="field"><label for="rmWho">Whose</label><select id="rmWho">' +
@@ -628,8 +643,7 @@ async function viewDue() {
         '<option value="0">Once</option><option value="30">Monthly</option>' +
         '<option value="90">Every 3 months</option><option value="180">Every 6 months</option>' +
         '<option value="365">Yearly</option></select></div>' +
-      '<div class="field"><button class="go" id="rmSave">Add</button>' +
-      '<button class="ghost" id="closeSheet">Cancel</button></div><div class="status" id="rmStatus"></div>');
+      '<div class="status" id="rmStatus"></div>');
     $('rmSave').onclick = async () => {
       try {
         await post('/api/core/care/reminders', { person: $('rmWho').value, title: $('rmTitle').value,
@@ -675,15 +689,14 @@ async function viewMedicines() {
     if (keep) { await post('/api/core/care/medicines/'+keep.dataset.mgo+'/ongoing', {}); bust('/api/'); route(); }
   };
   $('addMed').onclick = () => {
-    sheet('<h3>Add a medicine</h3><div class="sub">For anything without a prescription on file.</div>' +
+    sheet('<h3>Add a medicine</h3>' + actions([{ id:'amSave', label:'Add', kind:'go' }, { id:'closeSheet', label:'Cancel' }]) + '<div class="sub">For anything without a prescription on file.</div>' +
       '<div class="field"><label for="amName">Name</label><input type="text" id="amName"></div>' +
       '<div class="field"><label for="amStr">Strength</label><input type="text" id="amStr" placeholder="500 mg"></div>' +
       '<div class="field"><label for="amDose">Dose</label><input type="text" id="amDose" placeholder="1-0-1"></div>' +
       '<div class="field"><label for="amStart">Started</label><input type="date" id="amStart" value="'+state.account.today+'"></div>' +
       '<div class="field"><label for="amEnd">Until</label><input type="date" id="amEnd"></div>' +
       '<label class="opt"><input type="checkbox" id="amOngoing"> Continuing indefinitely</label>' +
-      '<div class="field"><button class="go" id="amSave">Add</button>' +
-      '<button class="ghost" id="closeSheet">Cancel</button></div><div class="status" id="amStatus"></div>');
+      '<div class="status" id="amStatus"></div>');
     $('amSave').onclick = async () => {
       try {
         await post('/api/core/care/medicines', { person: state.current, name: $('amName').value,
@@ -748,11 +761,18 @@ async function loadRows(reset) {
   };
 }
 
-async function openRecord(kind, id) {
-  if (kind === 'document') { window.open('/api/core/documents/' + id + '/file', '_blank'); return; }
+async function openRecordEdit(kind, id) {
+  // A visit is worth a screen of its own — everything filed from it, in one place.
+
   try {
     const rec = await api('/api/health/records/' + kind + '/' + id);
-    sheet('<h3>Edit</h3><div class="sub">Every change is kept with its reason.</div>' +
+    sheet('<h3>Edit</h3>' +
+      actions([
+        { id:'saveEdit', label:'Save', kind:'go' },
+        { id:'closeSheet', label:'Cancel' },
+        { id:'delRec', label:'Delete', danger:true, right:true },
+      ]) +
+      '<div class="sub">Every change is kept with its reason.</div>' +
       rec.fields.map((f) =>
         '<div class="field"><label for="f_'+f.name+'">'+esc(f.label)+'</label>' +
         (f.type === 'textarea'
@@ -761,9 +781,6 @@ async function openRecord(kind, id) {
         '</div>').join('') +
       '<div class="field"><label for="f_reason">Why</label>' +
       '<input type="text" id="f_reason" placeholder="the lab printed the wrong date"></div>' +
-      '<div class="field"><button class="go" id="saveEdit">Save</button>' +
-      '<button class="ghost" id="closeSheet">Cancel</button>' +
-      '<button class="ghost danger" id="delRec" style="margin-left:auto">Delete</button></div>' +
       '<div class="status" id="editStatus"></div>');
 
     $('saveEdit').onclick = async () => {
@@ -782,22 +799,117 @@ async function openRecord(kind, id) {
   } catch (err) { alert(err.message); }
 }
 
+
 /* ================================================================
-   5. More
+   4b. One visit — everything that came from it
    ================================================================ */
 
-async function viewMore() {
+async function viewRecord(p) {
+  const d = await cachedGet('/api/health/records/' + p.id);
+  const r = d.record;
+  $('htitle').textContent = r.record_type || 'Visit';
+
+  const block = (title, rows) => rows
+    ? '<section><div class="h"><h2>' + title + '</h2></div><div class="list">' + rows + '</div></section>' : '';
+
+  const docs = d.documents.map((x) =>
+    '<div class="r" data-tap data-doc="'+x.document_id+'">' +
+    '<span class="tag">' + esc(x.document_type || 'Document') + '</span>' +
+    '<span class="t">' + esc(x.file_name) + '</span>' +
+    '<span class="v">' + (x.bytes ? Math.round(x.bytes/1024) + ' KB' : '') + '</span>' +
+    '<span class="x">Tap to open or edit its details</span></div>').join('');
+
+  const tests = d.tests.map((x) =>
+    '<div class="r ' + (x.is_abnormal?'bad':'') + '" data-tap data-trendp="'+esc(x.parameter)+'">' +
+    '<span class="t">' + esc(x.parameter) + '</span>' +
+    '<span class="v num">' + esc([x.result_text, x.unit_raw].filter(Boolean).join(' ')) + '</span>' +
+    (x.ref_range_text ? '<span class="x">ref ' + esc(x.ref_range_text) + '</span>' : '') + '</div>').join('');
+
+  const meds = d.medicines.map((x) =>
+    '<div class="r" data-tap data-edit="medicine:'+x.medicine_id+'">' +
+    '<span class="t">' + esc([x.name, x.strength].filter(Boolean).join(' ')) + '</span>' +
+    '<span class="v">' + esc([x.dose, x.frequency].filter(Boolean).join(' ')) + '</span>' +
+    '<span class="x">' + (x.end_date ? 'until ' + fmt(x.end_date) : esc(x.duration_text || x.status)) +
+    '</span></div>').join('');
+
+  const bills = d.bills.map((x) =>
+    '<div class="r" data-tap data-edit="bill:'+x.bill_id+'">' +
+    '<span class="t">' + esc(x.medicine_name || x.item || 'Item') + '</span>' +
+    '<span class="v num">' + esc(String(x.bill_total ?? x.line_amount ?? '')) + '</span>' +
+    '<span class="x">' + esc([x.vendor, x.payment_status].filter(Boolean).join(' \u00b7 ')) + '</span></div>').join('');
+
+  const dx = d.diagnoses.map((x) =>
+    '<div class="r" data-tap data-edit="diagnosis:'+x.diagnosis_id+'">' +
+    '<span class="t">' + esc(x.diagnosis) + '</span>' +
+    '<span class="v">' + esc(x.status || '') + '</span></div>').join('');
+
+  const fu = d.followUps.map((x) =>
+    '<div class="r" data-tap data-edit="followup:'+x.follow_up_id+'">' +
+    '<span class="d num">' + fmtShort(x.due_date) + '</span>' +
+    '<span class="t">' + esc(x.instruction || x.type) + '</span>' +
+    '<span class="v">' + esc(x.status) + '</span></div>').join('');
+
   $('main').innerHTML =
-    '<section><div class="tiles">' +
-      '<button class="tile" data-go="history"><b>Full history</b><span>Everything filed, searchable</span></button>' +
-      '<button class="tile" data-go="episodes"><b>Episodes of care</b><span>Group an admission or illness</span></button>' +
-      '<button class="tile" data-go="settings"><b>Details &amp; exports</b><span>Profile, spreadsheet, scans</span></button>' +
-    '</div></section>';
+    '<section><table class="facts">' +
+      '<tr><td class="k">Date</td><td>' + esc(fmt(r.event_date)) + '</td></tr>' +
+      '<tr><td class="k">Person</td><td>' + esc(r.person) + '</td></tr>' +
+      '<tr><td class="k">Type</td><td>' + esc(r.record_type) + '</td></tr>' +
+      (r.doctor || r.facility ? '<tr><td class="k">Seen at</td><td>' +
+        esc([r.doctor, r.facility].filter(Boolean).join(', ')) + '</td></tr>' : '') +
+      '<tr><td class="k">Episode</td><td>' + (r.episode
+        ? '<a href="#" data-ep="'+r.care_event_id+'">' + esc(r.episode) + '</a>'
+        : 'Not grouped') + '</td></tr>' +
+      (r.summary ? '<tr><td class="k">Summary</td><td>' + esc(r.summary) + '</td></tr>' : '') +
+    '</table>' +
+    '<div class="field" style="margin-top:12px">' +
+      '<button class="ghost" id="editVisit">Edit this visit</button></div></section>' +
+    block('Documents', docs) +
+    block('Results', tests) +
+    block('Medicines', meds) +
+    block('Diagnoses', dx) +
+    block('Follow-ups', fu) +
+    block('Bills', bills);
+
+  $('editVisit').onclick = () => openRecordEdit('record', p.id);
   $('main').onclick = (e) => {
-    const t = e.target.closest('[data-go]');
-    if (t) go(t.dataset.go);
+    const doc = e.target.closest('[data-doc]');
+    const ed = e.target.closest('[data-edit]');
+    const tr = e.target.closest('[data-trendp]');
+    const ep = e.target.closest('[data-ep]');
+    if (doc) return documentSheet(doc.dataset.doc);
+    if (ed) { const [k, id] = ed.dataset.edit.split(':'); return openRecordEdit(k, id); }
+    if (tr) return go('trend', { parameter: tr.dataset.trendp });
+    if (ep) { e.preventDefault(); return go('episodes'); }
   };
 }
+
+/**
+ * A document's own card: whose, when, which visit, which episode — visible and
+ * editable — with the scan one tap away.
+ */
+async function documentSheet(id) {
+  const d = await api('/api/core/documents/' + id);
+  sheet('<h3>' + esc(d.document_type || 'Document') + '</h3>' +
+    actions([
+      { id:'docOpen', label:'Open document', kind:'go' },
+      { id:'docEdit', label:'Edit details' },
+      { id:'closeSheet', label:'Close', right:true },
+    ]) +
+    '<table class="facts">' +
+      '<tr><td class="k">Person</td><td>' + esc(d.person) + '</td></tr>' +
+      '<tr><td class="k">Date</td><td>' + esc(fmt(d.document_date)) + '</td></tr>' +
+      '<tr><td class="k">Type</td><td>' + esc(d.document_type || '\u2014') + '</td></tr>' +
+      '<tr><td class="k">From</td><td>' + esc(d.provider || '\u2014') + '</td></tr>' +
+      '<tr><td class="k">Visit</td><td>' + esc(d.record_summary || d.record_type || '\u2014') + '</td></tr>' +
+      '<tr><td class="k">Episode</td><td>' + esc(d.episode || 'Not grouped') + '</td></tr>' +
+      '<tr><td class="k">File</td><td style="word-break:break-all">' + esc(d.file_name) + '</td></tr>' +
+    '</table>');
+
+  $('docOpen').onclick = () => { location.href = '/api/core/documents/' + id + '/file'; };
+  $('docEdit').onclick = () => openRecordEdit('document', id);
+}
+
+
 
 async function viewEpisodes() {
   const list = await cachedGet('/api/health/events?person=' + state.current);
@@ -875,11 +987,10 @@ async function viewSettings() {
     if (!a) return;
     const original = a.querySelector('.t').textContent;
     const name = a.querySelector('.v').textContent.replace('\u2192 ','');
-    sheet('<h3>Standard name</h3><div class="sub">Printed on the report as \u201c'+esc(original)+'\u201d</div>' +
+    sheet('<h3>Standard name</h3>' + actions([{ id:'aSave', label:'Save', kind:'go' }, { id:'closeSheet', label:'Cancel' }]) + '<div class="sub">Printed on the report as \u201c'+esc(original)+'\u201d</div>' +
       '<div class="field"><label for="aName">Standard</label><input type="text" id="aName" value="'+esc(name)+'"></div>' +
       '<div class="field"><label for="aUnit">Usual unit</label><input type="text" id="aUnit"></div>' +
-      '<div class="field"><button class="go" id="aSave">Save</button>' +
-      '<button class="ghost" id="closeSheet">Cancel</button></div><div class="status" id="aStatus"></div>');
+      '<div class="status" id="aStatus"></div>');
     $('aSave').onclick = async () => {
       try {
         await put('/api/health/records/aliases/'+encodeURIComponent(a.dataset.alias),
@@ -898,11 +1009,10 @@ export default {
   home: 'upload',
   tabs: [
     ['upload',    'Add',      'M12 5v14M5 12h14'],
+    ['review',    'Review',   'M9 11l3 3 7-7M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9'],
     ['overview',  'Overview', 'M4 12h5l2 6 3-13 2 7h4'],
     ['tests',     'Tests',    'M4 19h16M7 19V9M12 19V5M17 19v-7'],
-    ['review',    'Review',   'M9 11l3 3 7-7M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9'],
-    ['due',       'Due',      'M12 7v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z'],
-    ['more',      'More',     'M5 12h.01M12 12h.01M19 12h.01'],
+    ['history',   'History',  'M4 6h16M4 12h16M4 18h10'],
   ],
   screens: {
     upload:    { title:'Add a report',      tab:'upload',   render: viewUpload },
@@ -910,12 +1020,20 @@ export default {
     tests:     { title:'Tests',             tab:'tests',    render: viewPanels },
     panel:     { title:'Panel',             tab:'tests',    render: viewPanel,     deep:true },
     trend:     { title:'Trend',             tab:'tests',    render: viewTrend,     deep:true },
-    due:       { title:'Due',               tab:'due',      render: viewDue },
+    due:       { title:'Due',               tab:'overview', render: viewDue,       deep:true },
     review:    { title:'Review',            tab:'review',   render: viewReview },
-    medicines: { title:'Medicines',         tab:'due',      render: viewMedicines, deep:true },
-    more:      { title:'More',              tab:'more',     render: viewMore },
-    history:   { title:'History',           tab:'more',     render: viewHistory,   deep:true },
-    episodes:  { title:'Episodes of care',  tab:'more',     render: viewEpisodes,  deep:true },
-    settings:  { title:'Details & exports', tab:'more',     render: viewSettings,  deep:true },
+    medicines: { title:'Medicines',         tab:'overview', render: viewMedicines, deep:true },
+    history:   { title:'History',           tab:'history',  render: viewHistory },
+    record:    { title:'Visit',             tab:'history',  render: viewRecord,    deep:true },
+    episodes:  { title:'Episodes of care',  tab:'overview', render: viewEpisodes,  deep:true },
+    settings:  { title:'Details & exports', tab:'overview', render: viewSettings,  deep:true },
   },
 };
+
+
+/** Where a tapped row goes: visits get a screen, documents a card, the rest an edit. */
+function openRecord(kind, id) {
+  if (kind === 'record') return go('record', { id });
+  if (kind === 'document') return documentSheet(id);
+  return openRecordEdit(kind, id);
+}

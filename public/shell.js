@@ -75,6 +75,22 @@ export function sheet(html) {
 }
 export const closeSheet = () => { $('sheetHost').innerHTML = ''; };
 
+// Escape closes whatever is open. Registered once, not per sheet.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('sheetHost').innerHTML) closeSheet();
+});
+
+/**
+ * Actions belong at the top of a sheet, where they are reachable with a thumb
+ * and visible without scrolling past a long form.
+ */
+export function actions(buttons) {
+  return '<div class="actions">' + buttons.map((b) =>
+    '<button class="' + (b.kind || 'ghost') + (b.danger ? ' danger' : '') + '"' +
+    (b.id ? ' id="' + b.id + '"' : '') + (b.right ? ' style="margin-left:auto"' : '') + '>' +
+    esc(b.label) + '</button>').join('') + '</div>';
+}
+
 /** Downloads go through fetch so a failure arrives as a sentence. */
 export async function download(path, button, statusId) {
   const original = button.textContent;
