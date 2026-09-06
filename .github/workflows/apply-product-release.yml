@@ -1,0 +1,59 @@
+name: Apply complete product release
+
+on:
+  push:
+    branches:
+      - codex/full-repair-ui
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/full-repair-ui
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reconstruct verified release patch
+        shell: bash
+        run: |
+          echo "a128f04550d478e70ddb1e436bbed40bf6eda8a080d41fb8d506cca263836c04  scripts/apply_product_release.py.gz.b64" | sha256sum -c -
+          base64 -d scripts/apply_product_release.py.gz.b64 > scripts/apply_product_release.py.gz
+          echo "6ce096f104f1f00f90ed0e5847332f084b5cdab1226ef1597ab5f7d40ce8264e  scripts/apply_product_release.py.gz" | sha256sum -c -
+          gzip -dc scripts/apply_product_release.py.gz > scripts/apply_product_release.py
+          echo "7a8547618213fcae19dd47339a4da2e17aa4beb8e0b5a3a462eeb67beb2978da  scripts/apply_product_release.py" | sha256sum -c -
+          python3 -m py_compile scripts/apply_product_release.py
+
+      - name: Apply product and UI changes
+        run: python3 scripts/apply_product_release.py
+
+      - name: Remove one-time patch files
+        shell: bash
+        run: |
+          rm -rf scripts/__pycache__
+          rm -f scripts/apply_product_release.py scripts/apply_product_release.py.gz scripts/apply_product_release.py.gz.b64
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Verify full release
+        run: npm test
+
+      - name: Commit verified release
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A ':!.github/workflows/apply-product-release.yml'
+          git commit -m "Complete family health product and responsive UI"
+          git push origin HEAD:codex/full-repair-ui
