@@ -18,9 +18,13 @@
     var main = document.getElementById('main');
     var title = document.getElementById('htitle');
     if (title) title.textContent = 'Could not open the app';
-    if (main) main.innerHTML = '<div class="boot-error"><div class="boot-error-icon">!</div>' +
-      '<h2>The app did not finish loading</h2><p>' + String(message || 'Please reload once.').replace(/[&<>]/g, function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c];}) + '</p>' +
-      '<button onclick="location.reload()">Reload app</button><small>Build ' + window.__FMR_BUILD__ + '</small></div>';
+    if (main) {
+      main.dataset.ready = 'true';
+      main.setAttribute('aria-busy', 'false');
+      main.innerHTML = '<div class="boot-error"><div class="boot-error-icon">!</div>' +
+        '<h2>The app did not finish loading</h2><p>' + String(message || 'Please reload once.').replace(/[&<>]/g, function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c];}) + '</p>' +
+        '<button onclick="location.reload()">Reload app</button><small>Build ' + window.__FMR_BUILD__ + '</small></div>';
+    }
   };
   window.addEventListener('error', function (event) {
     if (event && event.message) window.__showFmrBootError(event.message);
@@ -29,7 +33,7 @@
     var reason = event && event.reason;
     window.__showFmrBootError(reason && reason.message ? reason.message : String(reason || 'Unexpected loading error.'));
   });
-  window.setTimeout(function () {
+  window.__FMR_BOOT_TIMER__ = window.setTimeout(function () {
     var main = document.getElementById('main');
     if (main && main.dataset.ready !== 'true') window.__showFmrBootError('The connection took too long. Reload the app and try again.');
   }, 20000);
@@ -64,6 +68,8 @@
   </main>
   <div id="sheetHost"></div>
 
-  <script type="module" src="/shell.js?v=20260906-3"></script>
+  <!-- Do not add a query string to shell.js. health.js imports this exact URL;
+       using two URLs creates two ESM instances and breaks application boot. -->
+  <script type="module" src="/shell.js"></script>
 </body>
 </html>
