@@ -14,7 +14,7 @@ import {
   resolveParameter, learnAlias, toCanonicalValue, numericResult,
   parseReferenceRange, referenceBand, isAbnormal, medicineEnd,
 } from './canonical';
-import { objectKey, filedKey, documentFileName } from './storage';
+import { objectKey, documentFileName } from './storage';
 
 const CATEGORY: Record<string, string> = {
   'Doctor Visit': 'Prescriptions & Visits', 'Prescription': 'Prescriptions & Visits',
@@ -30,65 +30,47 @@ interface JobFile {
 }
 
 export async function approveJob(
-  env: Env, jobId: string, personId: string, personName: string,
+  env: Env, jobId: string, recordId: string, personId: string, personName: string,
   careEventId: string | null, data: Extraction, files: JobFile[], actor: string
 ): Promise<{ recordId: string; counts: Record<string, number> }> {
-
-  const recordId = crypto.randomUUID();
   const eventDate = data.event_date || new Date().toISOString().slice(0, 10);
   const stmts: D1PreparedStatement[] = [];
   const timeline: any[][] = [];
 
   const addTimeline = (kind: string, refId: string, date: string, title: string, value: string, detail: string, flag: string) =>
     timeline.push([
-      crypto.randomUUID(), personId, kind, refId, date || eventDate,
+      stableId(`${jobId}:timeline:${kind}:${refId}`), personId, kind, refId, date || eventDate,
       title.slice(0, 200), value.slice(0, 300), detail.slice(0, 400), flag,
       `${title} ${value} ${detail}`.toLowerCase().slice(0, 500), careEventId,
     ]);
 
   /* ---- the visit or report itself ---- */
   stmts.push(env.DB.prepare(
-    `INSERT INTO health_records (record_id, person_id, care_event_id, event_date, record_type, doctor,
-                          speciality, facility, reason, summary, key_diagnosis, key_findings)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR IGNORE INTO health_records (record_id, person_id, care_event_id, event_date, record_type, doctor,
+                          speciality, facility, reason, summary, key_diagnosis, key_findings, job_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     recordId, personId, careEventId, eventDate, data.record_type, data.doctor_name,
     data.speciality, data.facility, data.reason_or_symptoms, data.summary,
-    data.diagnoses.map((d) => d.diagnosis).join('; '), data.key_findings
+    data.diagnoses.map((d) => d.diagnosis).join('; '), data.key_findings, jobId
   ));
   addTimeline('record', recordId, eventDate, data.record_type, data.summary,
     [data.doctor_name, data.facility].filter(Boolean).join(' \u00b7 '), '');
 
   /* ---- the scans, moved out of the pending area into their filed key ---- */
   for (const [i, f] of files.entries()) {
-    const documentId = crypto.randomUUID();
+    const documentId = stableId(`${jobId}:document:${i}`);
     const meta = data.documents[i] ?? {};
     const docDate = meta.document_date || eventDate;
 
-    // Give the stored object a name a human can read, now that we know whose
-    // it is and what it contains. Failure here must not lose the document, so
-    // the original key stands if the copy does not take.
+    // Keep the original opaque encrypted object key. Human-readable naming is
+    // applied only at download/export time, so a database failure never strands
+    // the document under a newly moved key.
     const provider = meta.provider || data.facility || '';
-    let key = f.r2_key;
-    try {
-      const target = filedKey({
-        person: personName, date: docDate, recordType: meta.document_type || data.record_type,
-        provider, documentId, originalName: f.file_name,
-      });
-      if (target !== f.r2_key) {
-        const obj = await env.DOCS.get(f.r2_key);
-        if (obj) {
-          await env.DOCS.put(target, await obj.arrayBuffer(), {
-            customMetadata: obj.customMetadata,
-          });
-          await env.DOCS.delete(f.r2_key);
-          key = target;
-        }
-      }
-    } catch { /* keep the original key rather than risk the file */ }
+    const key = f.r2_key;
 
     stmts.push(env.DB.prepare(
-      `INSERT INTO core_documents (document_id, record_id, person_id, document_date, document_type,
+      `INSERT OR IGNORE INTO core_documents (document_id, record_id, person_id, document_date, document_type,
                               category, provider, file_name, r2_key, mime_type, bytes,
                               content_sha256, summary)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -106,7 +88,7 @@ export async function approveJob(
   }
 
   /* ---- test results: the part the trends depend on ---- */
-  for (const t of data.tests) {
+  for (const [i, t] of data.tests.entries()) {
     await learnAlias(env, t.parameter || t.test_or_panel, t.parameter_standard, t.unit);
     const resolved = await resolveParameter(env, t.parameter || t.test_or_panel, t.unit);
 
@@ -133,9 +115,9 @@ export async function approveJob(
       if (high !== null && valueA > high) abnormal = true;
     }
 
-    const resultId = crypto.randomUUID();
+    const resultId = stableId(`${jobId}:test:${i}`);
     stmts.push(env.DB.prepare(
-      `INSERT INTO health_test_results (result_id, record_id, person_id, test_date, panel, parameter_raw,
+      `INSERT OR IGNORE INTO health_test_results (result_id, record_id, person_id, test_date, panel, parameter_raw,
                                  parameter, result_text, value_a, value_b, unit_raw, unit,
                                  ref_range_text, ref_low, ref_high, flag, is_abnormal, lab, entry_source)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ai')`
@@ -153,16 +135,16 @@ export async function approveJob(
   }
 
   /* ---- medicines, with a real end date rather than a 90-day guess ---- */
-  for (const m of data.medicines) {
+  for (const [i, m] of data.medicines.entries()) {
     const { endDate, status } = medicineEnd({
       status: m.status, end_date: m.end_date, start_date: m.start_date,
       prescribed_on: eventDate, duration_text: m.duration,
       instructions: m.timing_or_instructions, frequency: m.frequency,
     });
 
-    const medicineId = crypto.randomUUID();
+    const medicineId = stableId(`${jobId}:medicine:${i}`);
     stmts.push(env.DB.prepare(
-      `INSERT INTO health_medicines (medicine_id, record_id, person_id, prescribed_on, name, composition,
+      `INSERT OR IGNORE INTO health_medicines (medicine_id, record_id, person_id, prescribed_on, name, composition,
                               strength, form, dose, frequency, route, duration_text, instructions,
                               start_date, end_date, status)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -179,29 +161,29 @@ export async function approveJob(
   }
 
   /* ---- diagnoses, follow-ups, bills ---- */
-  for (const d of data.diagnoses) {
-    const id = crypto.randomUUID();
+  for (const [i, d] of data.diagnoses.entries()) {
+    const id = stableId(`${jobId}:diagnosis:${i}`);
     stmts.push(env.DB.prepare(
-      `INSERT INTO health_diagnoses (diagnosis_id, record_id, person_id, noted_on, diagnosis, status, notes)
+      `INSERT OR IGNORE INTO health_diagnoses (diagnosis_id, record_id, person_id, noted_on, diagnosis, status, notes)
        VALUES (?,?,?,?,?,?,?)`
     ).bind(id, recordId, personId, eventDate, d.diagnosis, d.status, d.notes));
     addTimeline('diagnosis', id, eventDate, d.diagnosis, d.status, d.notes, '');
   }
 
-  for (const f of data.follow_ups) {
-    const id = crypto.randomUUID();
+  for (const [i, f] of data.follow_ups.entries()) {
+    const id = stableId(`${jobId}:followup:${i}`);
     stmts.push(env.DB.prepare(
-      `INSERT INTO health_follow_ups (follow_up_id, record_id, person_id, due_date, type, instruction, status)
+      `INSERT OR IGNORE INTO health_follow_ups (follow_up_id, record_id, person_id, due_date, type, instruction, status)
        VALUES (?,?,?,?,?,?,'pending')`
     ).bind(id, recordId, personId, f.due_date || null, f.type || 'Follow-up', f.instruction));
     addTimeline('followup', id, f.due_date || eventDate, f.type || 'Follow-up', f.instruction, '', 'pending');
   }
 
-  for (const b of data.bills) {
-    const id = crypto.randomUUID();
+  for (const [i, b] of data.bills.entries()) {
+    const id = stableId(`${jobId}:bill:${i}`);
     const amount = (v: string) => { const n = Number(String(v).replace(/[^0-9.]/g, '')); return Number.isFinite(n) && n > 0 ? n : null; };
     stmts.push(env.DB.prepare(
-      `INSERT INTO health_bills (bill_id, record_id, person_id, bill_date, bill_type, vendor, invoice_number,
+      `INSERT OR IGNORE INTO health_bills (bill_id, record_id, person_id, bill_date, bill_type, vendor, invoice_number,
                           item, medicine_name, quantity, batch_number, expiry_date,
                           line_amount, bill_total, payment_status, notes)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -219,17 +201,10 @@ export async function approveJob(
   /* ---- timeline rows ---- */
   for (const row of timeline) {
     stmts.push(env.DB.prepare(
-      `INSERT INTO health_timeline (entry_id, person_id, kind, ref_id, date, title, value, detail, flag, search_text, care_event_id)
+      `INSERT OR IGNORE INTO health_timeline (entry_id, person_id, kind, ref_id, date, title, value, detail, flag, search_text, care_event_id)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(...row));
   }
-
-  stmts.push(env.DB.prepare(
-    `UPDATE core_jobs SET status='approved', message='Filed.', updated_at=datetime('now') WHERE job_id = ?`
-  ).bind(jobId));
-  stmts.push(env.DB.prepare(
-    `INSERT INTO core_audit_log (actor, action, ref_id, detail) VALUES (?, 'approved', ?, ?)`
-  ).bind(actor, recordId, `${personName}: ${data.record_type} on ${eventDate}`));
 
   // D1 caps how much one batch may carry, so send in chunks.
   for (let i = 0; i < stmts.length; i += 40) await env.DB.batch(stmts.slice(i, i + 40));
@@ -244,5 +219,20 @@ export async function approveJob(
   };
 }
 
-/** Where a filed document lives, once it is no longer pending. */
+/** Stable ids make a partially completed filing safe to retry. */
+function stableId(seed: string): string {
+  const hash = (start: number) => {
+    let h = start >>> 0;
+    for (let i = 0; i < seed.length; i++) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+  const hex = hash(2166136261) + hash(2166136261 ^ 0x9e3779b9) +
+              hash(2166136261 ^ 0x85ebca6b) + hash(2166136261 ^ 0xc2b2ae35);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Where a pending document lives. */
 export { objectKey };

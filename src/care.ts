@@ -47,13 +47,15 @@ care.get('/medicines', async (c) => {
   ).bind(person).all<any>();
 
   const now = today();
-  const isCurrent = (m: any) =>
-    m.status === 'active' || (m.status === 'unknown' && (!m.end_date || m.end_date >= now));
+  const active = (m: any) =>
+    m.status === 'active' && (!m.end_date || m.end_date >= now);
+  const unconfirmed = (m: any) =>
+    m.status === 'unknown' && (!m.end_date || m.end_date >= now);
 
   return c.json({
-    active: results.filter((m) => isCurrent(m) && m.status !== 'unknown'),
-    unconfirmed: results.filter((m) => m.status === 'unknown'),
-    past: results.filter((m) => !isCurrent(m) && m.status !== 'unknown'),
+    active: results.filter(active),
+    unconfirmed: results.filter(unconfirmed),
+    past: results.filter((m) => !active(m) && !unconfirmed(m)),
   });
 });
 
@@ -223,9 +225,9 @@ export async function upsertReminder(env: Env, r: {
   await env.DB.prepare(
     `INSERT INTO core_reminders (reminder_id, person_id, kind, title, detail, due_date, repeat_days, source_ref)
      VALUES (?,?,?,?,?,?,?,?)
-     ON CONFLICT(source_ref, kind) DO UPDATE SET
+     ON CONFLICT(source_ref, kind) WHERE source_ref IS NOT NULL DO UPDATE SET
        due_date = excluded.due_date, title = excluded.title, detail = excluded.detail
-     WHERE reminders.status = 'pending'`
+     WHERE core_reminders.status = 'pending'`
   ).bind(crypto.randomUUID(), r.personId, r.kind, r.title.slice(0, 160),
          r.detail ?? '', r.dueDate, r.repeatDays ?? 0, r.sourceRef).run();
 }

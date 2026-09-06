@@ -182,12 +182,37 @@ records.delete('/:kind/:id', async (c) => {
   if (!row) throw new Error('Already gone.');
   assertScope(caller, row.person_id);
 
-  await c.env.DB.batch([
+  const statements = [
     c.env.DB.prepare(`UPDATE ${spec.table} SET deleted = 1 WHERE ${spec.idCol} = ?`).bind(id),
     c.env.DB.prepare(`UPDATE health_timeline SET deleted = 1 WHERE ref_id = ?`).bind(id),
+  ];
+  if (c.req.param('kind') === 'record') {
+    statements.push(
+      c.env.DB.prepare(`UPDATE core_reminders SET status='dismissed'
+        WHERE status='pending' AND source_ref IN (
+          SELECT follow_up_id FROM health_follow_ups WHERE record_id=?
+          UNION ALL SELECT medicine_id FROM health_medicines WHERE record_id=?)`).bind(id, id),
+      c.env.DB.prepare(`UPDATE health_test_results SET deleted=1 WHERE record_id=?`).bind(id),
+      c.env.DB.prepare(`UPDATE health_medicines SET deleted=1 WHERE record_id=?`).bind(id),
+      c.env.DB.prepare(`UPDATE health_diagnoses SET deleted=1 WHERE record_id=?`).bind(id),
+      c.env.DB.prepare(`UPDATE health_follow_ups SET deleted=1 WHERE record_id=?`).bind(id),
+      c.env.DB.prepare(`UPDATE health_bills SET deleted=1 WHERE record_id=?`).bind(id),
+      c.env.DB.prepare(`UPDATE core_documents SET deleted=1 WHERE record_id=?`).bind(id),
+      c.env.DB.prepare(`UPDATE health_timeline SET deleted=1 WHERE ref_id IN (
+        SELECT result_id FROM health_test_results WHERE record_id=?
+        UNION ALL SELECT medicine_id FROM health_medicines WHERE record_id=?
+        UNION ALL SELECT diagnosis_id FROM health_diagnoses WHERE record_id=?
+        UNION ALL SELECT follow_up_id FROM health_follow_ups WHERE record_id=?
+        UNION ALL SELECT bill_id FROM health_bills WHERE record_id=?
+        UNION ALL SELECT document_id FROM core_documents WHERE record_id=?)`)
+        .bind(id, id, id, id, id, id),
+    );
+  }
+  statements.push(
     c.env.DB.prepare(`INSERT INTO core_audit_log (actor, action, ref_id, detail) VALUES (?, 'deleted', ?, ?)`)
       .bind(caller.email, id, spec.table),
-  ]);
+  );
+  await c.env.DB.batch(statements);
   return c.json({ ok: true });
 });
 

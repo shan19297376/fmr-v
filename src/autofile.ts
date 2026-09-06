@@ -86,9 +86,9 @@ export function canAutoFile(data: Extraction, personId: string | null): { ok: bo
   if (!captured && !data.summary) {
     return { ok: false, why: 'Nothing could be read from this document.' };
   }
-  // A page the reader flagged as unclear is exactly the page worth checking.
-  if (data.uncertain_fields.length > 3) {
-    return { ok: false, why: 'Several fields were hard to read.' };
+  // A single uncertain identity, date, result or dose is enough to require review.
+  if (data.uncertain_fields.length > 0) {
+    return { ok: false, why: 'At least one field was hard to read.' };
   }
   return { ok: true, why: '' };
 }
@@ -105,35 +105,104 @@ export async function fileJob(
 
   let careEventId: string | null = job.care_event_id ?? null;
   let episodeCreated = false;
+  const recordId = job.record_id || crypto.randomUUID();
 
-  if (!careEventId && autoEpisode) {
-    const ep = await findOrCreateEpisode(
-      env, job.person_id, data.event_date, data.facility, data.record_type
+  try {
+    if (!careEventId && autoEpisode) {
+      const ep = await findOrCreateEpisode(
+        env, job.person_id, data.event_date, data.facility, data.record_type
+      );
+      careEventId = ep.careEventId;
+      episodeCreated = ep.created;
+      await env.DB.prepare(`UPDATE core_jobs SET care_event_id = ? WHERE job_id = ?`)
+        .bind(careEventId, job.job_id).run();
+    }
+
+    const out = await approveJob(
+      env, job.job_id, recordId, job.person_id, job.person_name ?? '',
+      careEventId, data, files, actor
     );
-    careEventId = ep.careEventId;
-    episodeCreated = ep.created;
-    await env.DB.prepare(`UPDATE core_jobs SET care_event_id = ? WHERE job_id = ?`)
-      .bind(careEventId, job.job_id).run();
+
+    const { results: followUps } = await env.DB.prepare(
+      `SELECT follow_up_id, due_date, type, instruction FROM health_follow_ups
+        WHERE record_id = ? AND deleted = 0 AND due_date IS NOT NULL`
+    ).bind(out.recordId).all<any>();
+    for (const followUp of followUps) {
+      await upsertReminder(env, {
+        personId: job.person_id, kind: 'followup', sourceRef: followUp.follow_up_id,
+        title: followUp.instruction || followUp.type || 'Follow-up',
+        detail: 'From ' + (data.facility || data.record_type), dueDate: followUp.due_date,
+      });
+    }
+
+    const finalised = await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE core_jobs SET status='approved', message='Filed.', filed_at=datetime('now'),
+                filing_started_at=NULL, record_id=?, updated_at=datetime('now')
+          WHERE job_id = ? AND status='filing'`
+      ).bind(out.recordId, job.job_id),
+      env.DB.prepare(
+        `INSERT INTO core_audit_log (actor, action, ref_id, detail)
+         VALUES (?, 'approved', ?, ?)`
+      ).bind(actor, out.recordId,
+             `${job.person_name ?? ''}: ${data.record_type} on ${data.event_date}`),
+    ]);
+    if (!finalised[0].meta.changes) throw new Error('The upload is no longer in the filing state.');
+
+    return { ...out, careEventId, episodeCreated };
+  } catch (err) {
+    await cleanupPartialFiling(env, job.job_id, recordId, careEventId, episodeCreated);
+    throw err;
   }
+}
 
-  const out = await approveJob(
-    env, job.job_id, job.person_id, job.person_name ?? '', careEventId, data, files, actor
-  );
+async function cleanupPartialFiling(
+  env: Env, jobId: string, recordId: string,
+  careEventId: string | null, episodeCreated: boolean
+): Promise<void> {
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `DELETE FROM core_reminders WHERE source_ref IN (
+           SELECT follow_up_id FROM health_follow_ups WHERE record_id = ?
+           UNION ALL SELECT medicine_id FROM health_medicines WHERE record_id = ?)`
+      ).bind(recordId, recordId),
+      env.DB.prepare(
+        `DELETE FROM health_timeline WHERE ref_id = ? OR ref_id IN (
+           SELECT result_id FROM health_test_results WHERE record_id = ?
+           UNION ALL SELECT medicine_id FROM health_medicines WHERE record_id = ?
+           UNION ALL SELECT diagnosis_id FROM health_diagnoses WHERE record_id = ?
+           UNION ALL SELECT follow_up_id FROM health_follow_ups WHERE record_id = ?
+           UNION ALL SELECT bill_id FROM health_bills WHERE record_id = ?
+           UNION ALL SELECT document_id FROM core_documents WHERE record_id = ?)`
+      ).bind(recordId, recordId, recordId, recordId, recordId, recordId, recordId),
+      env.DB.prepare(
+        `DELETE FROM health_records WHERE record_id = ? AND job_id = ?`
+      ).bind(recordId, jobId),
+    ]);
 
-  for (const f of data.follow_ups) {
-    if (!f.due_date) continue;
-    await upsertReminder(env, {
-      personId: job.person_id, kind: 'followup', sourceRef: null,
-      title: f.instruction || f.type || 'Follow-up',
-      detail: 'From ' + (data.facility || data.record_type), dueDate: f.due_date,
-    });
+    if (episodeCreated && careEventId) {
+      await env.DB.prepare(
+        `DELETE FROM health_care_events
+          WHERE care_event_id = ? AND auto_created = 1
+            AND NOT EXISTS (
+              SELECT 1 FROM health_records WHERE care_event_id = ? AND deleted = 0)`
+      ).bind(careEventId, careEventId).run();
+    }
+
+    await env.DB.prepare(
+      `UPDATE core_jobs SET status='review', filed_at=NULL, filing_started_at=NULL,
+              message='Filing did not finish. It is safe to try again.', updated_at=datetime('now')
+        WHERE job_id = ? AND status IN ('filing','error','review')`
+    ).bind(jobId).run();
+  } catch (cleanupError) {
+    console.error('partial filing cleanup failed', cleanupError);
+    await env.DB.prepare(
+      `UPDATE core_jobs SET status='error', filing_started_at=NULL,
+              message='Filing stopped and needs support before retrying.', updated_at=datetime('now')
+        WHERE job_id = ?`
+    ).bind(jobId).run().catch(() => {});
   }
-
-  await env.DB.prepare(
-    `UPDATE core_jobs SET filed_at = datetime('now'), record_id = ? WHERE job_id = ?`
-  ).bind(out.recordId, job.job_id).run();
-
-  return { ...out, careEventId, episodeCreated };
 }
 
 /**
@@ -170,6 +239,15 @@ export async function tryAutoFile(env: Env, jobId: string, data: Extraction): Pr
   ).bind(jobId).all<any>();
   if (!files.length) return false;
 
+  const recordId = job.record_id || crypto.randomUUID();
+  const claimed = await env.DB.prepare(
+    `UPDATE core_jobs SET status='filing', filing_started_at=datetime('now'), record_id=?,
+            message='Filing the record…', updated_at=datetime('now')
+      WHERE job_id = ? AND status = 'review'`
+  ).bind(recordId, jobId).run();
+  if (!claimed.meta.changes) return false;
+  job.record_id = recordId;
+
   try {
     const out = await fileJob(env, job, data, files, job.created_by ?? 'auto', true);
     await env.DB.prepare(
@@ -179,7 +257,7 @@ export async function tryAutoFile(env: Env, jobId: string, data: Extraction): Pr
     return true;
   } catch (err) {
     await env.DB.prepare(
-      `UPDATE core_jobs SET status='review', message=?, updated_at=datetime('now') WHERE job_id = ?`
+      `UPDATE core_jobs SET status='review', filing_started_at=NULL, message=?, updated_at=datetime('now') WHERE job_id = ?`
     ).bind('Could not file automatically: ' + String(err instanceof Error ? err.message : err).slice(0, 200), jobId).run();
     await env.DB.prepare(`UPDATE core_jobs SET needs_attention = 1 WHERE job_id = ?`).bind(jobId).run();
     return false;
