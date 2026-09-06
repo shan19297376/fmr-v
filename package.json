@@ -8,7 +8,7 @@
     "db:local": "wrangler d1 migrations apply DB --local",
     "tail": "wrangler tail",
     "typecheck": "tsc --noEmit",
-    "test:frontend": "node scripts/check_frontend.mjs",
+    "test:frontend": "node scripts/check_frontend.mjs && node scripts/smoke_frontend.mjs",
     "test:migrations": "python3 scripts/check_migrations.py",
     "test:source": "python3 scripts/check_source_invariants.py",
     "test": "npm run typecheck && npm run test:frontend && npm run test:migrations && npm run test:source"
