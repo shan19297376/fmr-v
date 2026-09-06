@@ -1,159 +1,239 @@
 /**
- * Vishal AI — the shell.
+ * Family Health Records application shell.
  *
- * Everything here is app-agnostic: who you are, which apps you may open,
- * routing and the back button, the person switcher, and the handful of helpers
- * every app needs (fetching, caching, dates, bottom sheets).
- *
- * An app is a module exporting a manifest. It never touches the header, the
- * navigation or the router directly — it declares its screens and the shell
- * draws the chrome. Adding a second app is a new file and one line in APPS.
+ * Authentication, routing, responsive navigation, family switching and shared
+ * UI helpers live here. The health module declares screens; this shell renders
+ * them without owning medical-domain behaviour.
  */
 
-/* ---------- helpers every app uses ---------- */
+/* ---------- shared helpers ---------- */
 
 export const $ = (id) => document.getElementById(id);
-export const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
-  (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+export const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
+  (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-/** Dates are stored ISO and shown dd-mmm-yyyy. Decided here, nowhere else. */
 export const fmt = (iso) => {
-  const m = String(iso ?? '').slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? m[3] + '-' + MONTHS[+m[2]-1] + '-' + m[1] : (iso || '');
+  const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}-${MONTHS[Number(match[2]) - 1]}-${match[1]}` : String(iso || '');
 };
+
 export const fmtShort = (iso) => {
-  const m = String(iso ?? '').slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? m[3] + ' ' + MONTHS[+m[2]-1] + " '" + m[1].slice(2) : (iso || '');
+  const match = String(iso ?? '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]} ${MONTHS[Number(match[2]) - 1]} '${match[1].slice(2)}` : String(iso || '');
 };
+
 export const rel = (iso) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso ?? '').slice(0,10))) return '';
-  const d = Math.round((Date.parse(iso) - Date.parse(new Date().toISOString().slice(0,10)))/864e5);
-  if (d === 0) return 'today';
-  const n = Math.abs(d);
-  const u = n === 1 ? '1 day' : n < 31 ? n+' days'
-    : n < 365 ? Math.round(n/30)+' months' : (n/365).toFixed(1)+' years';
-  return d > 0 ? 'in '+u : u+' ago';
+  const value = String(iso ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+  const today = state.account?.today || new Date().toISOString().slice(0, 10);
+  const days = Math.round((Date.parse(value) - Date.parse(today)) / 864e5);
+  if (days === 0) return 'today';
+  const n = Math.abs(days);
+  const unit = n === 1 ? '1 day' : n < 31 ? `${n} days`
+    : n < 365 ? `${Math.round(n / 30)} months` : `${(n / 365).toFixed(1)} years`;
+  return days > 0 ? `in ${unit}` : `${unit} ago`;
 };
 
-export async function api(path, opts) {
-  const res = await fetch(path, { credentials:'same-origin', ...opts });
-  const ct = res.headers.get('Content-Type') || '';
-  const body = ct.includes('json') ? await res.json() : await res.text();
-  if (!res.ok) throw new Error((body && body.error) || res.statusText);
-  return body;
-}
-export const post = (p,b) => api(p, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
-export const put  = (p,b) => api(p, {method:'PUT',  headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
-export const del  = (p)   => api(p, {method:'DELETE'});
+const API_TIMEOUT_MS = 30000;
 
-/** Paints from cache at once, refreshes behind you. Tab switching stays instant. */
+export async function api(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, {
+      credentials: 'same-origin',
+      ...options,
+      signal: options.signal || controller.signal,
+    });
+    const contentType = response.headers.get('Content-Type') || '';
+    let body;
+    if (contentType.includes('json')) body = await response.json().catch(() => ({}));
+    else body = await response.text();
+
+    if (!response.ok) {
+      const message = body && typeof body === 'object' ? body.error : body;
+      throw new Error(message || `Request failed (${response.status}).`);
+    }
+    return body;
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('The server took too long to respond. Check the connection and try again.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export const post = (path, body) => api(path, {
+  method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(body ?? {}),
+});
+export const put = (path, body) => api(path, {
+  method: 'PUT', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(body ?? {}),
+});
+export const del = (path) => api(path, { method:'DELETE' });
+
 const cache = new Map();
+const warmed = new Set();
+
 export async function cachedGet(path) {
   const hit = cache.get(path);
-  const fresh = api(path).then((d) => { cache.set(path, d); return d; });
-  if (hit !== undefined) { fresh.catch(() => {}); return hit; }
+  const fresh = api(path).then((data) => {
+    cache.set(path, data);
+    return data;
+  });
+  if (hit !== undefined) {
+    fresh.catch(() => {});
+    return hit;
+  }
   return fresh;
 }
-export const bust = (part) => [...cache.keys()].forEach((k) => { if (k.includes(part)) cache.delete(k); });
-export const clearCache = () => { cache.clear(); warmed.clear(); };
 
-export const setStatus = (id, text, cls) => {
-  const el = $(id); if (el) { el.className = 'status'+(cls?' '+cls:''); el.textContent = text; }
+export const bust = (part) => {
+  for (const key of cache.keys()) if (key.includes(part)) cache.delete(key);
 };
-export const skeleton = (n) => '<div class="sk">' +
-  Array.from({length:n||3}, () => '<div></div><div></div><div></div>').join('') + '</div>';
+export const clearCache = () => {
+  cache.clear();
+  warmed.clear();
+};
+
+export const setStatus = (id, text, className) => {
+  const node = $(id);
+  if (!node) return;
+  node.className = `status${className ? ` ${className}` : ''}`;
+  node.textContent = text || '';
+};
+
+export const skeleton = (count = 3) => '<div class="sk">' +
+  Array.from({ length: count }, () => '<div></div><div></div><div></div>').join('') + '</div>';
+
+let restoreFocus = null;
 
 export function sheet(html) {
+  restoreFocus = document.activeElement;
   $('sheetHost').innerHTML =
-    '<div class="veil" id="veil"><div class="modal"><div class="grab"></div>' + html + '</div></div>';
-  $('veil').onclick = (e) => { if (e.target.id === 'veil') closeSheet(); };
-  const c = $('closeSheet'); if (c) c.onclick = closeSheet;
-  const first = $('sheetHost').querySelector('input,select,textarea');
+    '<div class="veil" id="veil" role="presentation"><div class="modal" role="dialog" aria-modal="true">' +
+    '<div class="grab" aria-hidden="true"></div>' + html + '</div></div>';
+  $('veil').onclick = (event) => {
+    if (event.target.id === 'veil') closeSheet();
+  };
+  const close = $('closeSheet');
+  if (close) close.onclick = closeSheet;
+  const first = $('sheetHost').querySelector('input,select,textarea,button');
   if (first && window.innerWidth > 600) first.focus();
 }
-export const closeSheet = () => { $('sheetHost').innerHTML = ''; };
 
-// Escape closes whatever is open. Registered once, not per sheet.
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('sheetHost').innerHTML) closeSheet();
+export function closeSheet() {
+  $('sheetHost').innerHTML = '';
+  if (restoreFocus && typeof restoreFocus.focus === 'function') restoreFocus.focus();
+  restoreFocus = null;
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && $('sheetHost').innerHTML) closeSheet();
 });
 
-/**
- * Actions belong at the top of a sheet, where they are reachable with a thumb
- * and visible without scrolling past a long form.
- */
 export function actions(buttons) {
-  return '<div class="actions">' + buttons.map((b) =>
-    '<button class="' + (b.kind || 'ghost') + (b.danger ? ' danger' : '') + '"' +
-    (b.id ? ' id="' + b.id + '"' : '') + (b.right ? ' style="margin-left:auto"' : '') + '>' +
-    esc(b.label) + '</button>').join('') + '</div>';
+  return '<div class="actions">' + buttons.map((button) =>
+    '<button type="button" class="' + (button.kind || 'ghost') + (button.danger ? ' danger' : '') + '"' +
+    (button.id ? ` id="${esc(button.id)}"` : '') + (button.right ? ' style="margin-left:auto"' : '') + '>' +
+    esc(button.label) + '</button>').join('') + '</div>';
 }
 
-/** Downloads go through fetch so a failure arrives as a sentence. */
 export async function download(path, button, statusId) {
   const original = button.textContent;
-  button.disabled = true; button.textContent = 'Preparing\u2026';
+  button.disabled = true;
+  button.textContent = 'Preparing…';
   try {
-    const res = await fetch(path, { credentials:'same-origin' });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Export failed.'); }
-    const match = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+    const response = await fetch(path, { credentials:'same-origin' });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || 'Export failed.');
+    }
+    const match = (response.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
     const name = match ? match[1] : 'export';
-    const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement('a');
-    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
-    const inc = res.headers.get('X-Documents-Included');
-    setStatus(statusId, inc
-      ? 'Saved '+name+' \u2014 '+inc+' of '+res.headers.get('X-Documents-Total')+' documents.'
-      : 'Saved '+name+'.', 'ok');
-  } catch (err) { setStatus(statusId, err.message, 'err'); }
-  finally { button.disabled = false; button.textContent = original; }
+    const included = response.headers.get('X-Documents-Included');
+    setStatus(statusId, included
+      ? `Saved ${name} — ${included} of ${response.headers.get('X-Documents-Total')} documents.`
+      : `Saved ${name}.`, 'ok');
+  } catch (error) {
+    setStatus(statusId, error.message, 'err');
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
-/* ---------- shared state ---------- */
+/* ---------- state and app registry ---------- */
 
 export const state = { account:null, people:[], current:null, app:null };
-export const person = () => state.people.find((p) => p.person_id === state.current) || {};
+export const person = () => state.people.find((item) => item.person_id === state.current) || {};
 
-/* ---------- app registry ---------- */
-
+// This is intentionally unversioned. health.js imports this exact same module;
+// adding a query string here creates a second shell module and breaks the cycle.
 import health from './apps/health.js';
 
-/** One line per app. Everything else about it lives in its own module. */
 const APPS = { health };
 
 const ICONS = {
   heart: 'M12 20s-7-4.6-7-9.4A4 4 0 0112 8a4 4 0 017 2.6C19 15.4 12 20 12 20z',
-  wallet: 'M4 8h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-1-3.9V8zM4 8V6.5A1.5 1.5 0 015.5 5H16',
-  shield: 'M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z',
 };
 
 /* ---------- routing ---------- */
 
-/** URL shape: #/health/tests?parameter=HbA1c — app, screen, params. */
-export function go(screen, params, replace) {
-  const q = new URLSearchParams(params || {}).toString();
-  const url = '#/' + state.app.id + '/' + screen + (q ? '?' + q : '');
-  if (replace) history.replaceState({}, '', url); else history.pushState({}, '', url);
+export function go(screen, params, replace = false) {
+  const app = state.app || APPS.health;
+  const query = new URLSearchParams(params || {}).toString();
+  const url = `#/${app.id}/${screen}${query ? `?${query}` : ''}`;
+  if (replace) history.replaceState({}, '', url);
+  else history.pushState({}, '', url);
   route();
 }
 
 function parseHash() {
   const raw = location.hash.slice(1);
-  const [path, qs] = raw.split('?');
+  const [path, query] = raw.split('?');
   const [, appId, screen] = path.split('/');
-  return { appId, screen, params: Object.fromEntries(new URLSearchParams(qs || '')) };
+  return { appId, screen, params: Object.fromEntries(new URLSearchParams(query || '')) };
 }
 
-const warmed = new Set();
+function setReady() {
+  const main = $('main');
+  if (!main) return;
+  main.dataset.ready = 'true';
+  main.setAttribute('aria-busy', 'false');
+  if (window.__FMR_BOOT_TIMER__) clearTimeout(window.__FMR_BOOT_TIMER__);
+}
 
-export async function refresh() { return route(); }
+function routeError(error) {
+  const message = esc(error?.message || 'This screen could not be opened.');
+  $('main').innerHTML = '<div class="boot-error"><div class="boot-error-icon">!</div>' +
+    '<h2>This screen could not be opened</h2><p>' + message + '</p>' +
+    '<button type="button" id="retryScreen">Try again</button></div>';
+  const retry = $('retryScreen');
+  if (retry) retry.onclick = () => { clearCache(); route(); };
+  setReady();
+}
+
+export async function refresh() {
+  return route();
+}
 
 async function route() {
+  if (!state.account) return;
   const { appId, screen, params } = parseHash();
-  const app = APPS[appId] || APPS[localStorage.getItem('lastApp')] || APPS.health;
+  const remembered = localStorage.getItem('lastApp');
+  const app = APPS[appId] || APPS[remembered] || APPS.health;
 
   if (!state.app || state.app.id !== app.id) {
     state.app = app;
@@ -161,138 +241,166 @@ async function route() {
     paintNav();
   }
 
-  const def = app.screens[screen] || app.screens[app.home];
-  $('htitle').textContent = def.title;
-  $('back').hidden = !def.deep;
-  $('people').hidden = def.hidePeople === true || !state.people.length;
-  [...$('nav').children].forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === def.tab));
+  const screenId = app.screens[screen] ? screen : app.home;
+  const definition = app.screens[screenId];
+  document.body.dataset.screen = definition.layout || definition.tab || screenId;
+  $('htitle').textContent = definition.title;
+  $('back').hidden = !definition.deep;
+  $('people').hidden = definition.hidePeople === true || !state.people.length;
+  for (const button of $('nav').children) {
+    button.setAttribute('aria-selected', String(button.dataset.tab === definition.tab));
+  }
   window.scrollTo(0, 0);
 
-  const key = app.id + '/' + screen;
-  if (!warmed.has(key)) { $('main').innerHTML = skeleton(3); warmed.add(key); }
+  const key = `${app.id}/${screenId}`;
+  $('main').dataset.ready = 'false';
+  $('main').setAttribute('aria-busy', 'true');
+  if (!warmed.has(key)) {
+    $('main').innerHTML = skeleton(4);
+    warmed.add(key);
+  }
 
-  try { await def.render(params); }
-  catch (err) { $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; }
+  try {
+    await definition.render(params);
+    setReady();
+  } catch (error) {
+    console.error('screen render failed', error);
+    routeError(error);
+  }
 }
 
 function paintNav() {
   $('nav').innerHTML = state.app.tabs.map(([id, label, path]) =>
-    '<button data-tab="'+id+'" data-screen="'+id+'">' +
-    '<svg viewBox="0 0 24 24"><path d="'+path+'"/></svg><span>'+label+'</span></button>').join('');
-  $('nav').onclick = (e) => {
-    const b = e.target.closest('[data-screen]');
-    if (b) go(b.dataset.screen);
+    `<button type="button" data-tab="${id}" data-screen="${id}" aria-selected="false">` +
+    `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg><span>${esc(label)}</span></button>`
+  ).join('');
+  $('nav').onclick = (event) => {
+    const button = event.target.closest('[data-screen]');
+    if (button) go(button.dataset.screen);
   };
 }
 
 window.addEventListener('popstate', route);
 
-/* ---------- people, shared across apps ---------- */
+/* ---------- family switching ---------- */
 
 export function paintPeople() {
-  $('people').innerHTML = state.people.map((p) =>
-    '<button data-id="'+p.person_id+'" aria-pressed="'+(p.person_id===state.current)+'">'+esc(p.name)+'</button>'
-  ).join('') + '<button class="new" data-add="1">+ Person</button>';
+  const canAdd = state.account?.role === 'owner';
+  $('people').innerHTML = state.people.map((item) =>
+    `<button type="button" data-id="${item.person_id}" aria-pressed="${item.person_id === state.current}">${esc(item.name)}</button>`
+  ).join('') + (canAdd ? '<button type="button" class="new" data-add="1">+ Add person</button>' : '');
 
-  $('people').onclick = (e) => {
-    const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.add) return addPerson();
-    if (b.dataset.id === state.current) return personSheet(b.dataset.id);
-    state.current = b.dataset.id;
+  $('people').onclick = (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.dataset.add) return addPerson();
+    if (button.dataset.id === state.current) return personSheet(button.dataset.id);
+    state.current = button.dataset.id;
     localStorage.setItem('lastPerson', state.current);
-    [...$('people').children].forEach((x) => x.setAttribute('aria-pressed', x.dataset.id === state.current));
-    clearCache(); route();
-  };
-  $('people').oncontextmenu = (e) => {
-    const b = e.target.closest('[data-id]');
-    if (b) { e.preventDefault(); personSheet(b.dataset.id); }
+    for (const item of $('people').children) {
+      item.setAttribute('aria-pressed', String(item.dataset.id === state.current));
+    }
+    clearCache();
+    route();
   };
 }
 
 async function addPerson() {
-  const name = prompt('Name of the family member');
-  if (!name) return;
-  try {
-    const r = await post('/api/core/people', { name });
-    state.current = r.personId;
-    await refreshPeople();
-  } catch (err) { alert(err.message); }
+  sheet('<h3>Add a family member</h3>' + actions([
+    { id:'addPersonSave', label:'Add person', kind:'go' },
+    { id:'closeSheet', label:'Cancel' },
+  ]) + '<div class="field"><label for="addPersonName">Name</label>' +
+  '<input type="text" id="addPersonName" autocomplete="name" placeholder="Full name"></div>' +
+  '<div class="status" id="addPersonStatus"></div>');
+
+  $('addPersonSave').onclick = async () => {
+    try {
+      const result = await post('/api/core/people', { name:$('addPersonName').value });
+      state.current = result.personId;
+      localStorage.setItem('lastPerson', state.current);
+      await refreshPeople();
+      closeSheet();
+    } catch (error) {
+      setStatus('addPersonStatus', error.message, 'err');
+    }
+  };
 }
 
-/** Rename, or merge a duplicate the reader created from a misread name. */
 export function personSheet(id) {
-  const p = state.people.find((x) => x.person_id === id) || {};
-  const others = state.people.filter((x) => x.person_id !== id);
-  sheet('<h3>' + esc(p.name) + '</h3>' +
-    '<div class="field"><label for="pnName">Name</label><input type="text" id="pnName" value="'+esc(p.name)+'"></div>' +
-    '<div class="field"><button class="go" id="pnSave">Save name</button>' +
-    '<button class="ghost" id="closeSheet">Close</button></div>' +
-    (others.length
-      ? '<div class="sub" style="margin-top:16px">If this is the same person as someone else, merge them. ' +
-        'Everything moves across and nothing is lost.</div>' +
+  const selected = state.people.find((item) => item.person_id === id) || {};
+  const others = state.people.filter((item) => item.person_id !== id);
+  sheet('<h3>' + esc(selected.name) + '</h3>' + actions([
+    { id:'pnSave', label:'Save name', kind:'go' },
+    { id:'closeSheet', label:'Close' },
+  ]) + '<div class="field"><label for="pnName">Name</label>' +
+    `<input type="text" id="pnName" value="${esc(selected.name)}"></div>` +
+    (state.account?.role === 'owner' && others.length
+      ? '<details class="review-section"><summary>Merge a duplicate person</summary><div class="review-rows">' +
+        '<p class="sub">Use only when both entries are the same person.</p>' +
         '<div class="field"><label for="pnMerge">Merge into</label><select id="pnMerge">' +
-        '<option value="">Choose\u2026</option>' +
-        others.map((o) => '<option value="'+o.person_id+'">'+esc(o.name)+'</option>').join('') +
-        '</select><button class="ghost danger" id="pnMergeGo">Merge</button></div>' : '') +
+        '<option value="">Choose…</option>' + others.map((item) =>
+          `<option value="${item.person_id}">${esc(item.name)}</option>`).join('') + '</select></div>' +
+        '<button type="button" class="ghost danger" id="pnMergeGo">Merge records</button></div></details>' : '') +
     '<div class="status" id="pnStatus"></div>');
 
   $('pnSave').onclick = async () => {
-    try { await put('/api/core/people/' + id, { name: $('pnName').value });
-      await refreshPeople(); closeSheet();
-    } catch (err) { setStatus('pnStatus', err.message, 'err'); }
+    try {
+      await put(`/api/core/people/${id}`, { name:$('pnName').value });
+      await refreshPeople();
+      closeSheet();
+    } catch (error) {
+      setStatus('pnStatus', error.message, 'err');
+    }
   };
+
   if ($('pnMergeGo')) $('pnMergeGo').onclick = async () => {
     const into = $('pnMerge').value;
-    if (!into) return setStatus('pnStatus', 'Choose who to merge into.', 'err');
-    const name = (state.people.find((x) => x.person_id === into) || {}).name;
-    if (!confirm('Move everything from ' + p.name + ' into ' + name + '?')) return;
+    if (!into) return setStatus('pnStatus', 'Choose the person to keep.', 'err');
+    const target = state.people.find((item) => item.person_id === into)?.name || 'the selected person';
+    if (!confirm(`Move all records from ${selected.name} into ${target}?`)) return;
     try {
-      await post('/api/core/people/' + id + '/merge', { into });
-      state.current = into; await refreshPeople(); closeSheet();
-    } catch (err) { setStatus('pnStatus', err.message, 'err'); }
+      await post(`/api/core/people/${id}/merge`, { into });
+      state.current = into;
+      localStorage.setItem('lastPerson', into);
+      await refreshPeople();
+      closeSheet();
+    } catch (error) {
+      setStatus('pnStatus', error.message, 'err');
+    }
   };
 }
 
 export async function refreshPeople() {
   clearCache();
   state.account = await api('/api/core/bootstrap');
-  state.people = state.account.people;
-  if (!state.people.some((p) => p.person_id === state.current)) {
-    state.current = state.people[0] ? state.people[0].person_id : null;
+  state.people = state.account.people || [];
+  if (!state.people.some((item) => item.person_id === state.current)) {
+    state.current = state.people[0]?.person_id || null;
   }
-  paintPeople(); route();
+  paintPeople();
+  await route();
 }
 
-/* ---------- launcher ---------- */
+/* ---------- account panel ---------- */
 
 function launcher() {
-  const list = (state.account.apps || []).map((a) =>
-    '<button class="appcard" data-app="'+a.app_id+'">' +
-    '<span class="ic"><svg viewBox="0 0 24 24"><path d="'+(ICONS[a.icon] || ICONS.heart)+
-      '" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' +
-    '<span><b>'+esc(a.name)+'</b><span>'+esc(a.tagline || '')+'</span></span></button>').join('');
-
-  // Placeholders are deliberate: the shell is built for more than one app, and
-  // showing that is the point of having a launcher at all.
-  const soon = [['wallet','Meridian Desk','Trading and positions'],
-                ['shield','Regulatory Monitor','Filings and deadlines']]
-    .map(([icon,name,tag]) =>
-      '<div class="appcard soon"><span class="ic"><svg viewBox="0 0 24 24"><path d="'+ICONS[icon]+
-      '" stroke-linecap="round" stroke-linejoin="round"/></svg></span>' +
-      '<span><b>'+name+'</b><span>'+tag+'</span></span><span class="tag">soon</span></div>').join('');
-
-  $('sheetHost').innerHTML =
-    '<div class="launcher" id="veil"><div class="sheet">' +
-    '<h3>Vishal AI</h3><p class="who">' + esc(state.account.email) + '</p>' +
-    list + soon +
-    '<div class="field" style="margin-top:14px"><button class="ghost" id="closeSheet">Close</button></div>' +
+  const app = state.account.apps?.[0] || {
+    app_id:'health', name:'Family Health Records', tagline:'Reports, medicines, trends', icon:'heart',
+  };
+  $('sheetHost').innerHTML = '<div class="launcher" id="veil"><div class="sheet">' +
+    '<h3>Family Health Records</h3><p class="who">' + esc(state.account.email) +
+    ' · ' + esc(state.account.role) + '</p>' +
+    '<button type="button" class="appcard" data-app="health"><span class="ic">' +
+      `<svg viewBox="0 0 24 24"><path d="${ICONS[app.icon] || ICONS.heart}"/></svg></span>` +
+      '<span><b>' + esc(app.name) + '</b><span>' + esc(app.tagline || '') + '</span></span></button>' +
+    '<div class="field" style="margin-top:14px"><button type="button" class="ghost" id="closeSheet">Close</button></div>' +
     '</div></div>';
-
-  $('veil').onclick = (e) => { if (e.target.id === 'veil') closeSheet(); };
+  $('veil').onclick = (event) => { if (event.target.id === 'veil') closeSheet(); };
   $('closeSheet').onclick = closeSheet;
-  $('sheetHost').querySelectorAll('[data-app]').forEach((b) => {
-    b.onclick = () => { closeSheet(); location.hash = '#/' + b.dataset.app + '/'; };
-  });
+  $('sheetHost').querySelector('[data-app]').onclick = () => {
+    closeSheet();
+    location.hash = '#/health/overview';
+  };
 }
 
 /* ---------- boot ---------- */
@@ -300,24 +408,24 @@ function launcher() {
 async function boot() {
   try {
     state.account = await api('/api/core/bootstrap');
-    state.people = state.account.people;
+    state.people = state.account.people || [];
     state.current = localStorage.getItem('lastPerson');
-    if (!state.people.some((p) => p.person_id === state.current)) {
-      state.current = state.people[0] ? state.people[0].person_id : null;
+    if (!state.people.some((item) => item.person_id === state.current)) {
+      state.current = state.people[0]?.person_id || null;
     }
 
-    $('avatar').textContent = (state.account.email[0] || '?').toUpperCase();
+    $('avatar').textContent = (state.account.email?.[0] || '?').toUpperCase();
     $('avatar').onclick = launcher;
     $('back').onclick = () => history.back();
-
     paintPeople();
-    if (!location.hash) {
-      const last = localStorage.getItem('lastApp') || 'health';
-      history.replaceState({}, '', '#/' + last + '/');
-    }
-    route();
-  } catch (err) {
-    $('main').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
+
+    if (!location.hash) history.replaceState({}, '', '#/health/overview');
+    await route();
+  } catch (error) {
+    console.error('app boot failed', error);
+    const message = error?.message || 'The app could not connect.';
+    if (window.__showFmrBootError) window.__showFmrBootError(message);
+    else routeError(error);
   }
 }
 
