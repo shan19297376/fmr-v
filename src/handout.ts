@@ -27,7 +27,8 @@ export async function handoutHtml(env: Env, personId: string, shared = false): P
     env.DB.prepare(
       `SELECT name, strength, dose, frequency, start_date, end_date, status, instructions
          FROM health_medicines WHERE person_id = ? AND deleted = 0
-          AND status IN ('active','unknown') ORDER BY prescribed_on DESC LIMIT 25`).bind(personId),
+          AND status IN ('active','unknown') AND (end_date IS NULL OR end_date >= ?)
+        ORDER BY prescribed_on DESC LIMIT 25`).bind(personId, today(env.TIMEZONE)),
     env.DB.prepare(
       `SELECT parameter, result_text, unit_raw, test_date, ref_range_text, ref_low, ref_high,
               is_abnormal, value_a, lab,
@@ -54,7 +55,7 @@ export async function handoutHtml(env: Env, personId: string, shared = false): P
     .slice(0, 26);
 
   const age = person.date_of_birth
-    ? Math.floor((Date.parse(today()) - Date.parse(person.date_of_birth)) / 31557600000)
+    ? Math.floor((Date.parse(today(env.TIMEZONE)) - Date.parse(person.date_of_birth)) / 31557600000)
     : null;
 
   const arrow = (now: number | null, prev: number | null) => {
@@ -102,7 +103,7 @@ export async function handoutHtml(env: Env, personId: string, shared = false): P
 </div>
 
 <h1>${esc(person.name)}</h1>
-<p class="sub">Medical summary prepared ${esc(displayDate(today()))}${age !== null ? ` &middot; age ${age}` : ''}</p>
+<p class="sub">Medical summary prepared ${esc(displayDate(today(env.TIMEZONE)))}${age !== null ? ` &middot; age ${age}` : ''}</p>
 
 <table class="facts">
   <tr><td class="k">Blood group</td><td>${esc(person.blood_group || 'Not recorded')}</td>

@@ -53,6 +53,14 @@ export type Caller = {
 
 const app = new Hono<{ Bindings: Env; Variables: { caller: Caller } }>();
 
+app.use('*', async (c, next) => {
+  await next();
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'no-referrer');
+  c.header('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+});
+
 /* ------------------------------------------------------------------ */
 /* 1. Authentication                                                   */
 /* ------------------------------------------------------------------ */
@@ -102,7 +110,7 @@ async function scopeFor(env: Env, email: string): Promise<Caller> {
     throw new HttpError(403, 'Your account has not been given access to any records yet.');
   }
 
-  if (row.expires_at && row.expires_at < todayIso()) {
+  if (row.expires_at && row.expires_at < todayIso(env.TIMEZONE)) {
     throw new HttpError(403, 'Your access to these records has expired.');
   }
 
@@ -142,7 +150,7 @@ app.get('/api/core/me', async (c) => {
     role: caller.role,
     title: c.env.APP_TITLE,
     storage: connected || 'r2',
-    today: todayIso(),
+    today: todayIso(c.env.TIMEZONE),
   });
 });
 
@@ -231,9 +239,16 @@ app.get('/api/health/trends/series', async (c) => {
 /** The person card: what a doctor would ask first. */
 app.get('/api/health/snapshot', async (c) => {
   const person = requirePerson(c.get('caller'), c.req.query('person'));
+  const localToday = todayIso(c.env.TIMEZONE);
   const [profile, meds, followUps, abnormal, lastVisit] = await c.env.DB.batch([
     c.env.DB.prepare(`SELECT * FROM core_profiles WHERE person_id = ?`).bind(person),
-    c.env.DB.prepare(`SELECT * FROM v_active_medicines WHERE person_id = ? ORDER BY prescribed_on DESC`).bind(person),
+    c.env.DB.prepare(
+      `SELECT * FROM health_medicines
+        WHERE person_id = ? AND deleted = 0
+          AND status <> 'stopped' AND status <> 'completed'
+          AND (end_date IS NULL OR end_date >= ?)
+        ORDER BY prescribed_on DESC`
+    ).bind(person, localToday),
     c.env.DB.prepare(`SELECT * FROM v_open_follow_ups WHERE person_id = ? ORDER BY due_date`).bind(person),
     c.env.DB.prepare(
       `SELECT parameter, result_text, unit, test_date, flag FROM v_latest_tests
@@ -250,7 +265,7 @@ app.get('/api/health/snapshot', async (c) => {
     profile: profile.results[0] ?? null,
     activeMedicines: meds.results,
     openFollowUps: followUps.results,
-    overdueCount: followUps.results.filter((f: any) => f.due_date && f.due_date < todayIso()).length,
+    overdueCount: followUps.results.filter((f: any) => f.due_date && f.due_date < localToday).length,
     abnormalTests: abnormal.results,
     lastVisit: lastVisit.results[0] ?? null,
   });
@@ -265,20 +280,25 @@ app.post('/api/core/uploads', async (c) => {
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
   const body = await c.req.json<{
     person?: string; date?: string; careEventId?: string;
-    batchId?: string; autoEpisode?: boolean; autoFile?: boolean;
+    batchId?: string; autoEpisode?: boolean; autoFile?: boolean; expectedFiles?: number;
   }>();
   // The person is optional. If it is not given, the reader works out who the
   // report belongs to from the name printed on it.
   const person = body.person ? requirePerson(caller, body.person) : null;
+  if (body.careEventId) {
+    if (!person) throw new HttpError(400, 'Choose a person before choosing an episode.');
+    await requireCareEvent(c.env, caller, person, body.careEventId);
+  }
   const jobId = crypto.randomUUID();
 
   await c.env.DB.prepare(
     `INSERT INTO core_jobs (job_id, person_id, care_event_id, user_date, status, message,
-                       created_by, batch_id, auto_episode, auto_file, person_explicit)
-     VALUES (?, ?, ?, ?, 'draft', 'Add files, then submit.', ?, ?, ?, ?, ?)`
-  ).bind(jobId, person, body.careEventId || null, body.date || todayIso(), caller.email,
+                       created_by, batch_id, auto_episode, auto_file, person_explicit, expected_files)
+     VALUES (?, ?, ?, ?, 'draft', 'Add files, then submit.', ?, ?, ?, ?, ?, ?)`
+  ).bind(jobId, person, body.careEventId || null, body.date || todayIso(c.env.TIMEZONE), caller.email,
          body.batchId || null, body.autoEpisode === false ? 0 : 1,
-         body.autoFile === false ? 0 : 1, person ? 1 : 0).run();
+         body.autoFile === false ? 0 : 1, person ? 1 : 0,
+         Math.min(Math.max(Number(body.expectedFiles) || 1, 1), 100)).run();
 
   return c.json({ jobId });
 });
@@ -292,12 +312,10 @@ app.post('/api/core/uploads/:jobId/file', async (c) => {
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
 
   const jobId = c.req.param('jobId');
-  const job = await c.env.DB.prepare(
-    `SELECT job_id, person_id, status FROM core_jobs WHERE job_id = ?`
-  ).bind(jobId).first<{ job_id: string; person_id: string | null; status: string }>();
-  if (!job) throw new HttpError(404, 'Upload not found.');
-  if (job.person_id) requirePerson(caller, job.person_id);
-  if (!['draft', 'error'].includes(job.status)) throw new HttpError(409, 'This upload is already being processed.');
+  const job = await requireUploadJob(c.env, caller, jobId);
+  if (!['draft', 'uploading', 'error'].includes(job.status)) {
+    throw new HttpError(409, 'This upload has already been submitted.');
+  }
 
   const form = await c.req.formData();
   const file = form.get('file') as unknown as
@@ -306,6 +324,9 @@ app.post('/api/core/uploads/:jobId/file', async (c) => {
   if (file.size > 30 * 1024 * 1024) throw new HttpError(413, 'Each file must be 30 MB or smaller.');
 
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const mimeType = detectDocumentMime(bytes);
+  if (!mimeType) throw new HttpError(415, 'Use a PDF, JPEG, PNG, WebP or HEIC document.');
+  const fileName = safeOriginalFileName(file.name);
   const hash = await sha256(bytes);
 
   // Exact duplicate of something already filed? Tell the user before storing it again.
@@ -314,41 +335,93 @@ app.post('/api/core/uploads/:jobId/file', async (c) => {
       WHERE content_sha256 = ? AND deleted = 0`
   ).bind(hash).first();
   if (dupe && form.get('allowDuplicate') !== 'true') {
-    return c.json({ duplicate: true, match: dupe }, 409);
+    return c.json({ duplicate: true }, 409);
   }
 
   const jobFileId = crypto.randomUUID();
   const r2Key = objectKey(job.person_id ?? 'unassigned', jobFileId);
-  await putDocument(c.env, r2Key, bytes, file.type);
+  await putDocument(c.env, r2Key, bytes, mimeType);
 
   const { count } = await c.env.DB.prepare(
     `SELECT COUNT(*) AS count FROM core_job_files WHERE job_id = ?`
   ).bind(jobId).first<{ count: number }>() ?? { count: 0 };
 
-  await c.env.DB.prepare(
-    `INSERT INTO core_job_files (job_file_id, job_id, file_index, file_name, mime_type,
-                            bytes, r2_key, content_sha256, ai_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`
-  ).bind(jobFileId, jobId, count + 1, file.name, file.type, file.size, r2Key, hash).run();
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO core_job_files (job_file_id, job_id, file_index, file_name, mime_type,
+                              bytes, r2_key, content_sha256, ai_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting')`
+    ).bind(jobFileId, jobId, count + 1, fileName, mimeType, file.size, r2Key, hash).run();
+    await c.env.DB.prepare(
+      `UPDATE core_jobs SET status='uploading', message=?, updated_at=datetime('now') WHERE job_id = ?`
+    ).bind(`Uploaded ${count + 1} file(s). Submit when ready.`, jobId).run();
+  } catch (err) {
+    await c.env.DOCS.delete(r2Key).catch(() => {});
+    throw err;
+  }
 
-  // Hand off to the background reader and return straight away.
-  await c.env.OCR.send({ jobId, jobFileId, r2Key, mimeType: file.type });
-  await c.env.DB.prepare(
-    `UPDATE core_jobs SET status='queued', message='Reading in the background…',
-            updated_at=datetime('now') WHERE job_id = ?`
-  ).bind(jobId).run();
+  return c.json({ jobFileId, name: fileName, uploaded: true });
+});
 
-  return c.json({ jobFileId, name: file.name, queued: true });
+/** Close the upload set before any page is sent to the background reader. */
+app.post('/api/core/uploads/:jobId/submit', async (c) => {
+  const caller = c.get('caller');
+  if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
+  const jobId = c.req.param('jobId');
+  const job = await requireUploadJob(c.env, caller, jobId);
+  const body = await c.req.json<{ expectedFiles?: number }>().catch(() => ({} as { expectedFiles?: number }));
+
+  const { results: files } = await c.env.DB.prepare(
+    `SELECT job_file_id, r2_key, mime_type, ai_status FROM core_job_files
+      WHERE job_id = ? ORDER BY file_index`
+  ).bind(jobId).all<any>();
+  if (!files.length) throw new HttpError(400, 'Add at least one file before submitting.');
+
+  if (['queued', 'reading', 'review', 'filing', 'approved'].includes(job.status)) {
+    return c.json({ queued: true, files: files.length });
+  }
+  if (!['draft', 'uploading', 'error'].includes(job.status)) {
+    throw new HttpError(409, `This upload is ${job.status}.`);
+  }
+
+  const expected = Math.min(Math.max(
+    Number(body.expectedFiles) || Number(job.expected_files) || files.length, 1
+  ), 100);
+  if (files.length !== expected) {
+    throw new HttpError(409, `Expected ${expected} file(s), but received ${files.length}.`);
+  }
+  const claimed = await c.env.DB.prepare(
+    `UPDATE core_jobs SET status='queued', submitted_at=datetime('now'), expected_files=?,
+            message='Waiting to be read…', updated_at=datetime('now')
+      WHERE job_id = ? AND status IN ('draft','uploading','error')`
+  ).bind(expected, jobId).run();
+  if (!claimed.meta.changes) throw new HttpError(409, 'This upload was already submitted.');
+
+  try {
+    for (const f of files) {
+      if (f.ai_status === 'done') continue;
+      await c.env.DB.prepare(
+        `UPDATE core_job_files SET ai_status='waiting', last_error='' WHERE job_file_id = ?`
+      ).bind(f.job_file_id).run();
+      await c.env.OCR.send({
+        jobId, jobFileId: f.job_file_id, r2Key: f.r2_key, mimeType: f.mime_type,
+      });
+    }
+  } catch (err) {
+    await c.env.DB.prepare(
+      `UPDATE core_jobs SET status='error', message=?, updated_at=datetime('now') WHERE job_id = ?`
+    ).bind('The upload was saved but could not be queued. Submit it again.', jobId).run();
+    throw err;
+  }
+
+  return c.json({ queued: true, files: files.length });
 });
 
 /** The scan attached to an upload, before it has been filed as a document. */
 app.get('/api/core/uploads/:jobId/file/:index', async (c) => {
   const caller = c.get('caller');
   const jobId = c.req.param('jobId');
-  const job = await c.env.DB.prepare(`SELECT person_id FROM core_jobs WHERE job_id = ?`)
-    .bind(jobId).first<{ person_id: string | null }>();
-  if (!job) throw new HttpError(404, 'Upload not found.');
-  if (job.person_id) requirePerson(caller, job.person_id);
+  await requireUploadJob(c.env, caller, jobId);
 
   const file = await c.env.DB.prepare(
     `SELECT r2_key, mime_type, file_name FROM core_job_files
@@ -368,9 +441,7 @@ app.get('/api/core/uploads/:jobId/file/:index', async (c) => {
 /** The app polls this to show progress. Cheap, indexed, no locks. */
 app.get('/api/core/uploads/:jobId', async (c) => {
   const jobId = c.req.param('jobId');
-  const job = await c.env.DB.prepare(`SELECT * FROM core_jobs WHERE job_id = ?`).bind(jobId).first<any>();
-  if (!job) throw new HttpError(404, 'Upload not found.');
-  requirePerson(c.get('caller'), job.person_id);
+  const job = await requireUploadJob(c.env, c.get('caller'), jobId);
   const { results: files } = await c.env.DB.prepare(
     `SELECT job_file_id, file_name, ai_status, last_error FROM core_job_files WHERE job_id = ? ORDER BY file_index`
   ).bind(jobId).all();
@@ -416,13 +487,8 @@ app.post('/api/core/uploads/:jobId/approve', async (c) => {
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
 
   const jobId = c.req.param('jobId');
-  const job = await c.env.DB.prepare(
-    `SELECT j.*, p.name person_name FROM core_jobs j LEFT JOIN core_people p ON p.person_id = j.person_id
-      WHERE j.job_id = ?`
-  ).bind(jobId).first<any>();
-  if (!job) throw new HttpError(404, 'Upload not found.');
+  const job = await requireUploadJob(c.env, caller, jobId);
   if (!job.person_id) throw new HttpError(400, 'Choose who this report belongs to first.');
-  requirePerson(caller, job.person_id);
   if (job.status !== 'review') throw new HttpError(409, `This upload is ${job.status}, not awaiting review.`);
 
   // The reviewer may have corrected values on screen; theirs win over Gemini's.
@@ -437,8 +503,25 @@ app.post('/api/core/uploads/:jobId/approve', async (c) => {
   ).bind(jobId).all<any>();
   if (!files.length) throw new HttpError(400, 'No document is attached to this upload.');
 
-  const out = await fileJob(c.env, job, data, files, caller.email, job.auto_episode !== 0);
-  return c.json(out);
+  const recordId = job.record_id || crypto.randomUUID();
+  const claimed = await c.env.DB.prepare(
+    `UPDATE core_jobs SET status='filing', filing_started_at=datetime('now'), record_id=?,
+            message='Filing the record…', updated_at=datetime('now')
+      WHERE job_id = ? AND status = 'review'`
+  ).bind(recordId, jobId).run();
+  if (!claimed.meta.changes) throw new HttpError(409, 'This upload is already being filed.');
+  job.record_id = recordId;
+
+  try {
+    const out = await fileJob(c.env, job, data, files, caller.email, job.auto_episode !== 0);
+    return c.json(out);
+  } catch (err) {
+    await c.env.DB.prepare(
+      `UPDATE core_jobs SET status='review', filing_started_at=NULL, message=?, updated_at=datetime('now')
+        WHERE job_id = ? AND status='filing'`
+    ).bind('Filing did not finish. It is safe to try again.', jobId).run();
+    throw err;
+  }
 });
 
 app.post('/api/core/uploads/:jobId/reject', async (c) => {
@@ -446,38 +529,42 @@ app.post('/api/core/uploads/:jobId/reject', async (c) => {
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
 
   const jobId = c.req.param('jobId');
-  const job = await c.env.DB.prepare(`SELECT person_id, status FROM core_jobs WHERE job_id = ?`)
-    .bind(jobId).first<any>();
-  if (!job) throw new HttpError(404, 'Upload not found.');
-  requirePerson(caller, job.person_id);
+  const job = await requireUploadJob(c.env, caller, jobId);
   if (job.status === 'approved') throw new HttpError(409, 'This one has already been filed.');
+  if (job.status === 'filing') throw new HttpError(409, 'This record is being filed and cannot be discarded.');
+  if (job.status === 'rejected') return c.json({ ok: true });
 
-  // Scans are deleted with the job: an abandoned upload should leave nothing behind.
+  const claimed = await c.env.DB.prepare(
+    `UPDATE core_jobs SET status='rejected', message='Discarded.', updated_at=datetime('now')
+      WHERE job_id = ? AND status NOT IN ('approved','filing','rejected')`
+  ).bind(jobId).run();
+  if (!claimed.meta.changes) throw new HttpError(409, 'This upload can no longer be discarded.');
+
+  // Claim the job first so queue consumers stop before its encrypted objects are removed.
   const { results: files } = await c.env.DB.prepare(
     `SELECT r2_key FROM core_job_files WHERE job_id = ?`
   ).bind(jobId).all<{ r2_key: string }>();
   for (const f of files) { try { await c.env.DOCS.delete(f.r2_key); } catch { /* already gone */ } }
 
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE core_jobs SET status='rejected', message='Discarded.', updated_at=datetime('now') WHERE job_id = ?`).bind(jobId),
-    c.env.DB.prepare(`INSERT INTO core_audit_log (actor, action, ref_id) VALUES (?, 'rejected', ?)`).bind(caller.email, jobId),
-  ]);
+  await c.env.DB.prepare(
+    `INSERT INTO core_audit_log (actor, action, ref_id) VALUES (?, 'rejected', ?)`
+  ).bind(caller.email, jobId).run();
   return c.json({ ok: true });
 });
 
 /** Anything waiting on the reviewer, across everyone this caller can see. */
 app.get('/api/core/inbox', async (c) => {
-  const s = scopeClause(c.get('caller'), 'j.person_id');
+  const access = uploadScopeClause(c.get('caller'), 'j');
   const { results } = await c.env.DB.prepare(
     `SELECT j.job_id, j.status, j.message, j.updated_at, j.detected_name, j.person_id,
             COALESCE(p.name, '') person,
             (SELECT COUNT(*) FROM core_job_files f WHERE f.job_id = j.job_id) files
        FROM core_jobs j LEFT JOIN core_people p ON p.person_id = j.person_id
       WHERE j.status IN ('queued','reading','review','error')
-        AND (j.person_id IS NULL OR ${s.sql})
+        AND ${access.sql}
       ORDER BY CASE j.status WHEN 'error' THEN 1 WHEN 'review' THEN 2 ELSE 3 END, j.updated_at DESC
       LIMIT 40`
-  ).bind(...s.binds).all();
+  ).bind(...access.binds).all();
   return c.json(results);
 });
 
@@ -486,14 +573,19 @@ app.get('/api/core/inbox', async (c) => {
 app.post('/api/core/uploads/:jobId/person', async (c) => {
   const caller = c.get('caller');
   if (caller.role === 'viewer') throw new HttpError(403, 'Read-only access.');
-  const { person, careEventId } = await c.req.json<{ person: string; careEventId?: string | null }>();
+  const { person, careEventId, autoEpisode } = await c.req.json<{
+    person: string; careEventId?: string | null; autoEpisode?: boolean;
+  }>();
   requirePerson(caller, person);
+  if (careEventId) await requireCareEvent(c.env, caller, person, careEventId);
+  const jobId = c.req.param('jobId');
+  await requireUploadJob(c.env, caller, jobId);
 
   await c.env.DB.prepare(
-    `UPDATE core_jobs SET person_id = ?, care_event_id = COALESCE(?, care_event_id),
+    `UPDATE core_jobs SET person_id = ?, care_event_id = ?, auto_episode = ?, auto_file = 0,
             message = 'Ready for you to check.', updated_at = datetime('now')
       WHERE job_id = ?`
-  ).bind(person, careEventId ?? null, c.req.param('jobId')).run();
+  ).bind(person, careEventId ?? null, autoEpisode ? 1 : 0, jobId).run();
   return c.json({ ok: true });
 });
 
@@ -572,16 +664,18 @@ app.get('/api/core/apps', async (c) => {
 app.get('/api/core/bootstrap', async (c) => {
   const caller = c.get('caller');
   const s = scopeClause(caller, 'p.person_id');
+  const jobs = uploadScopeClause(caller, 'core_jobs');
   const [people, inbox] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT p.person_id, p.name, pr.blood_group, pr.allergies, pr.chronic_conditions
          FROM core_people p LEFT JOIN core_profiles pr USING (person_id)
         WHERE p.active = 1 AND ${s.sql} ORDER BY p.sort_order, p.name`).bind(...s.binds),
     c.env.DB.prepare(
-      `SELECT COUNT(*) n FROM core_jobs WHERE status IN ('queued','reading','review','error')`),
+      `SELECT COUNT(*) n FROM core_jobs WHERE status IN ('queued','reading','review','error') AND ${jobs.sql}`)
+      .bind(...jobs.binds),
   ]);
   return c.json({
-    email: caller.email, role: caller.role, today: todayIso(),
+    email: caller.email, role: caller.role, today: todayIso(c.env.TIMEZONE),
     people: people.results, pending: (inbox.results[0] as any)?.n ?? 0,
     apps: [{ app_id: 'health', name: 'Family Health Records', tagline: 'Reports, medicines, trends' }],
   });
@@ -663,7 +757,7 @@ app.get('/api/core/filed', async (c) => {
  * handwritten prescriptions and poor scans are normal and always land here.
  */
 app.get('/api/core/review', async (c) => {
-  const s = scopeClause(c.get('caller'), 'j.person_id');
+  const access = uploadScopeClause(c.get('caller'), 'j');
   const { results } = await c.env.DB.prepare(
     `SELECT j.job_id, j.status, j.message, j.updated_at, j.detected_name, j.person_id,
             j.user_date, j.care_event_id, j.needs_attention, j.extraction IS NOT NULL has_read,
@@ -671,11 +765,11 @@ app.get('/api/core/review', async (c) => {
             (SELECT COUNT(*) FROM core_job_files f WHERE f.job_id = j.job_id) files
        FROM core_jobs j LEFT JOIN core_people p ON p.person_id = j.person_id
       WHERE j.status IN ('queued','reading','review','error')
-        AND (j.person_id IS NULL OR ${s.sql})
+        AND ${access.sql}
       ORDER BY CASE j.status WHEN 'error' THEN 1 WHEN 'review' THEN 2 ELSE 3 END,
                j.updated_at DESC
       LIMIT 60`
-  ).bind(...s.binds).all();
+  ).bind(...access.binds).all();
   return c.json(results);
 });
 
@@ -694,16 +788,15 @@ app.post('/api/core/uploads/:jobId/manual', async (c) => {
     facility?: string; doctor?: string; careEventId?: string | null; autoEpisode?: boolean;
   }>();
   const person = requirePerson(caller, b.person);
+  if (b.careEventId) await requireCareEvent(c.env, caller, person, b.careEventId);
   const date = parseDate(b.date);
   if (!date) throw new HttpError(400, 'What date is on this document?');
   const summary = String(b.summary ?? '').trim();
   if (!summary) throw new HttpError(400, 'Write a line about what this is, so you can find it later.');
 
-  const job = await c.env.DB.prepare(
-    `SELECT j.*, p.name person_name FROM core_jobs j LEFT JOIN core_people p ON p.person_id = ?
-      WHERE j.job_id = ?`
-  ).bind(person, jobId).first<any>();
-  if (!job) throw new HttpError(404, 'Upload not found.');
+  const job = await requireUploadJob(c.env, caller, jobId);
+  job.person_name = (await c.env.DB.prepare(`SELECT name FROM core_people WHERE person_id = ?`)
+    .bind(person).first<{ name: string }>())?.name ?? '';
   if (job.filed_at) throw new HttpError(409, 'This one is already filed.');
 
   const { results: files } = await c.env.DB.prepare(
@@ -725,8 +818,16 @@ app.post('/api/core/uploads/:jobId/manual', async (c) => {
     doctor_name: b.doctor ?? '',
   });
 
+  const recordId = job.record_id || crypto.randomUUID();
+  const claimed = await c.env.DB.prepare(
+    `UPDATE core_jobs SET status='filing', filing_started_at=datetime('now'), record_id=?
+      WHERE job_id = ? AND status IN ('review','error')`
+  ).bind(recordId, jobId).run();
+  if (!claimed.meta.changes) throw new HttpError(409, 'This upload is already being filed.');
+
   const out = await fileJob(
-    c.env, { ...job, job_id: jobId, person_id: person, care_event_id: b.careEventId || null },
+    c.env, { ...job, job_id: jobId, record_id: recordId, person_id: person,
+             care_event_id: b.careEventId || null },
     data, files, caller.email, b.autoEpisode !== false
   );
   await c.env.DB.prepare(
@@ -914,18 +1015,19 @@ app.get('/api/health/dashboard', async (c) => {
   const s = scopeClause(c.get('caller'), 'f.person_id');
   const s2 = scopeClause(c.get('caller'), 't.person_id');
   const s3 = scopeClause(c.get('caller'), 'r.person_id');
+  const localToday = todayIso(c.env.TIMEZONE);
 
   const [overdue, upcoming, abnormal, recent] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT f.follow_up_id, f.due_date, f.type, f.instruction, p.name person
          FROM health_follow_ups f JOIN core_people p USING (person_id)
-        WHERE f.deleted = 0 AND f.status = 'pending' AND f.due_date < date('now') AND ${s.sql}
-        ORDER BY f.due_date LIMIT 20`).bind(...s.binds),
+        WHERE f.deleted = 0 AND f.status = 'pending' AND f.due_date < ? AND ${s.sql}
+        ORDER BY f.due_date LIMIT 20`).bind(localToday, ...s.binds),
     c.env.DB.prepare(
       `SELECT f.follow_up_id, f.due_date, f.type, f.instruction, p.name person
          FROM health_follow_ups f JOIN core_people p USING (person_id)
-        WHERE f.deleted = 0 AND f.status = 'pending' AND f.due_date >= date('now') AND ${s.sql}
-        ORDER BY f.due_date LIMIT 20`).bind(...s.binds),
+        WHERE f.deleted = 0 AND f.status = 'pending' AND f.due_date >= ? AND ${s.sql}
+        ORDER BY f.due_date LIMIT 20`).bind(localToday, ...s.binds),
     c.env.DB.prepare(
       `SELECT t.parameter, t.result_text, t.unit_raw, t.test_date, t.flag, p.name person
          FROM health_test_results t JOIN core_people p USING (person_id)
@@ -990,11 +1092,9 @@ app.post('/api/health/handout/share', async (c) => {
 
 app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ error: err.message }, err.status as any);
-  console.error(err);
-  // Four family members debugging their own tool are better served by the real
-  // message than by a polite placeholder.
-  const detail = err instanceof Error ? err.message : String(err);
-  return c.json({ error: detail.slice(0, 400) || 'Something went wrong.' }, 500);
+  const errorId = crypto.randomUUID().slice(0, 8);
+  console.error('request failed', errorId, err);
+  return c.json({ error: `Something went wrong. Reference ${errorId}.` }, 500);
 });
 
 /**
@@ -1007,11 +1107,12 @@ app.get('/s/:shareId', async (c) => {
   ).bind(c.req.param('shareId')).first<any>();
 
   if (!share) return c.text('This link is not valid.', 404);
-  if (share.expires_at < new Date().toISOString()) return c.text('This link has expired.', 410);
-  if (share.max_views && share.views >= share.max_views) return c.text('This link has expired.', 410);
-
-  await c.env.DB.prepare(`UPDATE core_shares SET views = views + 1 WHERE share_id = ?`)
-    .bind(share.share_id).run();
+  const viewed = await c.env.DB.prepare(
+    `UPDATE core_shares SET views = views + 1
+      WHERE share_id = ? AND revoked = 0 AND expires_at >= ?
+        AND (max_views = 0 OR views < max_views)`
+  ).bind(share.share_id, new Date().toISOString()).run();
+  if (!viewed.meta.changes) return c.text('This link has expired.', 410);
 
   return new Response(await handoutHtml(c.env, share.person_id, true), {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -1028,6 +1129,108 @@ class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+function uploadScopeClause(caller: Caller, alias = 'j'): { sql: string; binds: string[] } {
+  const person = `${alias}.person_id`;
+  const assigned = caller.personIds === 'all'
+    ? `${person} IS NOT NULL`
+    : `${person} IN (${caller.personIds.map(() => '?').join(',')})`;
+  const binds = caller.personIds === 'all' ? [] : [...caller.personIds];
+  if (caller.role === 'owner') return { sql: `(${assigned} OR ${person} IS NULL)`, binds };
+  return {
+    sql: `(${assigned} OR (${person} IS NULL AND ${alias}.created_by = ?))`,
+    binds: [...binds, caller.email],
+  };
+}
+
+async function requireUploadJob(env: Env, caller: Caller, jobId: string): Promise<any> {
+  const job = await env.DB.prepare(`SELECT * FROM core_jobs WHERE job_id = ?`).bind(jobId).first<any>();
+  if (!job) throw new HttpError(404, 'Upload not found.');
+  if (job.person_id) requirePerson(caller, job.person_id);
+  else if (caller.role !== 'owner' && job.created_by !== caller.email) {
+    throw new HttpError(403, 'You do not have access to this upload.');
+  }
+  return job;
+}
+
+async function requireCareEvent(
+  env: Env, caller: Caller, personId: string, careEventId: string
+): Promise<void> {
+  const event = await env.DB.prepare(
+    `SELECT person_id FROM health_care_events WHERE care_event_id = ? AND deleted = 0`
+  ).bind(careEventId).first<{ person_id: string }>();
+  if (!event) throw new HttpError(404, 'That episode no longer exists.');
+  requirePerson(caller, event.person_id);
+  if (event.person_id !== personId) {
+    throw new HttpError(400, 'That episode belongs to a different person.');
+  }
+}
+
+function safeOriginalFileName(name: string): string {
+  return String(name || 'document')
+    .replace(/[\u0000-\u001f\u007f"\\/]+/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 240) || 'document';
+}
+
+async function maintainUploadJobs(env: Env): Promise<void> {
+  // A hard worker interruption can leave a file marked reading. Make it retryable.
+  const { results: stalled } = await env.DB.prepare(
+    `SELECT job_id FROM core_jobs
+      WHERE status = 'reading' AND updated_at < datetime('now','-1 hour') LIMIT 100`
+  ).all<{ job_id: string }>();
+  for (const job of stalled) {
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE core_job_files SET ai_status='error', last_error='Reading was interrupted.'
+          WHERE job_id = ? AND ai_status='reading'`
+      ).bind(job.job_id),
+      env.DB.prepare(
+        `UPDATE core_jobs SET status='error', message='Reading was interrupted. Submit again to retry.',
+                updated_at=datetime('now') WHERE job_id = ? AND status='reading'`
+      ).bind(job.job_id),
+    ]);
+  }
+
+  // Draft uploads are recoverable for a day, then their encrypted objects are removed.
+  const { results: abandoned } = await env.DB.prepare(
+    `SELECT job_id FROM core_jobs
+      WHERE status IN ('draft','uploading')
+        AND updated_at < datetime('now','-1 day') LIMIT 100`
+  ).all<{ job_id: string }>();
+  for (const job of abandoned) {
+    const claimed = await env.DB.prepare(
+      `UPDATE core_jobs SET status='rejected', message='Expired before submission.',
+              updated_at=datetime('now')
+        WHERE job_id = ? AND status IN ('draft','uploading')`
+    ).bind(job.job_id).run();
+    if (!claimed.meta.changes) continue;
+
+    const { results: files } = await env.DB.prepare(
+      `SELECT r2_key FROM core_job_files WHERE job_id = ?`
+    ).bind(job.job_id).all<{ r2_key: string }>();
+    for (const file of files) {
+      try { await env.DOCS.delete(file.r2_key); } catch { /* already gone */ }
+    }
+    await env.DB.prepare(
+      `INSERT INTO core_audit_log (action, ref_id, detail)
+       VALUES ('upload_expired', ?, 'Unsubmitted for more than one day')`
+    ).bind(job.job_id).run();
+  }
+}
+
+function detectDocumentMime(bytes: Uint8Array): string | null {
+  const at = (...values: number[]) => values.every((v, i) => bytes[i] === v);
+  if (at(0x25, 0x50, 0x44, 0x46, 0x2d)) return 'application/pdf';
+  if (at(0xff, 0xd8, 0xff)) return 'image/jpeg';
+  if (at(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png';
+  if (bytes.length > 12 && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
+      String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP') return 'image/webp';
+  if (bytes.length > 12 && String.fromCharCode(...bytes.slice(4, 8)) === 'ftyp') {
+    const brand = String.fromCharCode(...bytes.slice(8, 12)).toLowerCase();
+    if (['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand)) return 'image/heic';
+  }
+  return null;
+}
+
 function requirePerson(caller: Caller, personId?: string | null): string {
   if (!personId) throw new HttpError(400, 'Which person?');
   if (caller.personIds !== 'all' && !caller.personIds.includes(personId)) {
@@ -1037,39 +1240,13 @@ function requirePerson(caller: Caller, personId?: string | null): string {
 }
 
 /**
- * Create a person from a name printed on a report. Titles are stripped and the
- * name is title-cased, because labs shout: "MRS. REENA ARORA".
- */
-async function createPersonFromReport(env: Env, printed: string): Promise<string> {
-  const clean = printed
-    .replace(/\b(mr|mrs|ms|miss|dr|shri|smt|master|baby)\b\.?/gi, '')
-    .replace(/[^A-Za-z .'-]/g, ' ').replace(/\s+/g, ' ').trim()
-    .split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ').slice(0, 60) || 'Unnamed';
-
-  const existing = await env.DB.prepare(
-    `SELECT person_id FROM core_people WHERE lower(name) = lower(?)`
-  ).bind(clean).first<{ person_id: string }>();
-  if (existing) return existing.person_id;
-
-  const id = crypto.randomUUID();
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO core_people (person_id, name, sort_order) VALUES (?, ?, (SELECT COUNT(*) FROM core_people))`
-    ).bind(id, clean),
-    env.DB.prepare(`INSERT INTO core_profiles (person_id) VALUES (?)`).bind(id),
-    env.DB.prepare(`INSERT INTO core_audit_log (action, ref_id, detail) VALUES ('person_auto_created', ?, ?)`)
-      .bind(id, printed),
-  ]);
-  return id;
-}
-
-/**
  * Match a name printed on a report to a person on file. Reports write names in
  * every possible way — "Mrs. REENA ARORA", "Arora, Reena", "R. Arora" — so
  * compare on the parts, not the whole string.
  */
-export async function matchPerson(env: Env, printed: string): Promise<string | null> {
+export async function matchPerson(
+  env: Env, printed: string, onlyPersonId: string | null = null
+): Promise<string | null> {
   const norm = (s: string) => s.toLowerCase()
     .replace(/\b(mr|mrs|ms|miss|dr|shri|smt|master|baby)\b\.?/g, '')
     .replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -1079,8 +1256,9 @@ export async function matchPerson(env: Env, printed: string): Promise<string | n
   const parts = target.split(' ').filter((w) => w.length > 2);
 
   const { results } = await env.DB.prepare(
-    `SELECT person_id, name FROM core_people WHERE active = 1`
-  ).all<{ person_id: string; name: string }>();
+    `SELECT person_id, name FROM core_people
+      WHERE active = 1 AND (? IS NULL OR person_id = ?)`
+  ).bind(onlyPersonId, onlyPersonId).all<{ person_id: string; name: string }>();
 
   let best: { id: string; score: number } | null = null;
   for (const p of results) {
@@ -1118,22 +1296,54 @@ export default {
     for (const msg of batch.messages) {
       const { jobId, jobFileId, r2Key, mimeType } = msg.body;
       try {
-        await env.DB.prepare(
-          `UPDATE core_job_files SET ai_status='reading', attempts=attempts+1 WHERE job_file_id = ?`
-        ).bind(jobFileId).run();
-        await env.DB.prepare(
-          `UPDATE core_jobs SET status='reading', message='Reading the document\u2026', updated_at=datetime('now')
-            WHERE job_id = ? AND status <> 'review'`
+        const jobState = await env.DB.prepare(
+          `SELECT status FROM core_jobs WHERE job_id = ?`
+        ).bind(jobId).first<{ status: string }>();
+        const fileState = await env.DB.prepare(
+          `SELECT ai_status, file_name FROM core_job_files
+            WHERE job_file_id = ? AND job_id = ?`
+        ).bind(jobFileId, jobId).first<{ ai_status: string; file_name: string }>();
+
+        if (!jobState || !fileState ||
+            !['queued', 'reading', 'error'].includes(jobState.status) ||
+            !['waiting', 'error'].includes(fileState.ai_status)) {
+          msg.ack();
+          continue;
+        }
+
+        const claimedFile = await env.DB.prepare(
+          `UPDATE core_job_files SET ai_status='reading', attempts=attempts+1
+            WHERE job_file_id = ? AND job_id = ? AND ai_status IN ('waiting','error')`
+        ).bind(jobFileId, jobId).run();
+        if (!claimedFile.meta.changes) {
+          msg.ack();
+          continue;
+        }
+
+        const claimedJob = await env.DB.prepare(
+          `UPDATE core_jobs SET status='reading', message='Reading the document\u2026',
+                  updated_at=datetime('now')
+            WHERE job_id = ? AND status IN ('queued','reading','error')`
         ).bind(jobId).run();
+        if (!claimedJob.meta.changes) {
+          await env.DB.prepare(
+            `UPDATE core_job_files SET ai_status='error', last_error='Job is no longer active.'
+              WHERE job_file_id = ? AND ai_status='reading'`
+          ).bind(jobFileId).run();
+          msg.ack();
+          continue;
+        }
 
         const job = await env.DB.prepare(
-          `SELECT j.user_date, j.person_id, j.person_explicit, p.name person
+          `SELECT j.user_date, j.person_id, j.person_explicit, j.created_by, p.name person
              FROM core_jobs j LEFT JOIN core_people p ON p.person_id = j.person_id WHERE j.job_id = ?`
         ).bind(jobId).first<{ user_date: string | null; person_id: string | null;
-                              person_explicit: number; person: string | null }>();
-        const file = await env.DB.prepare(
-          `SELECT file_name FROM core_job_files WHERE job_file_id = ?`
-        ).bind(jobFileId).first<{ file_name: string }>();
+                              person_explicit: number; created_by: string; person: string | null }>();
+        if (!job) {
+          msg.ack();
+          continue;
+        }
+        const file = { file_name: fileState.file_name };
 
         const bytes = await getDocument(env, r2Key);
         const extraction = await readDocument(
@@ -1154,19 +1364,23 @@ export default {
 
         // Nobody was chosen at upload time: match the printed name to a person.
         if (!job?.person_id && extraction.patient_name) {
-          const match = await matchPerson(env, extraction.patient_name);
+          const uploader = await env.DB.prepare(
+            `SELECT scope_person_id FROM core_app_users WHERE email = ?`
+          ).bind(job.created_by).first<{ scope_person_id: string | null }>();
+          const allowedPerson = uploader ? uploader.scope_person_id : '__no_access__';
+          const match = await matchPerson(env, extraction.patient_name, allowedPerson);
           if (match) {
             await env.DB.prepare(
               `UPDATE core_jobs SET person_id = ?, detected_name = ? WHERE job_id = ? AND person_id IS NULL`
             ).bind(match, extraction.patient_name, jobId).run();
           } else {
-            // Nobody matched. Rather than stranding the report, file it under a
-            // new person and flag it, so the reviewer renames or merges instead
-            // of hunting for where their upload went.
-            const created = await createPersonFromReport(env, extraction.patient_name);
+            // Never create a medical identity and auto-file beneath it in one step.
+            // Keep the upload with its creator until a person confirms the match.
             await env.DB.prepare(
-              `UPDATE core_jobs SET person_id = ?, detected_name = ? WHERE job_id = ? AND person_id IS NULL`
-            ).bind(created, extraction.patient_name, jobId).run();
+              `UPDATE core_jobs SET detected_name = ?, auto_file = 0, needs_attention = 1,
+                      message='Choose who this document belongs to.'
+                WHERE job_id = ? AND person_id IS NULL`
+            ).bind(extraction.patient_name, jobId).run();
           }
         }
 
@@ -1185,14 +1399,19 @@ export default {
           ).bind(jobId).all<{ ai_json: string }>();
           const merged = mergeExtractions(
             results.map((r) => JSON.parse(r.ai_json)),
-            job?.user_date || new Date().toISOString().slice(0, 10)
+            job?.user_date || todayIso(env.TIMEZONE)
           );
           if (!merged.summary) merged.summary = 'Document filed; add a short summary.';
 
-          await env.DB.prepare(
+          const ready = await env.DB.prepare(
             `UPDATE core_jobs SET status='review', message='Ready for you to check.', extraction=?,
-                    updated_at=datetime('now') WHERE job_id = ?`
+                    updated_at=datetime('now')
+              WHERE job_id = ? AND status IN ('queued','reading','error')`
           ).bind(JSON.stringify(merged), jobId).run();
+          if (!ready.meta.changes) {
+            msg.ack();
+            continue;
+          }
 
           // Nothing more is needed from a person unless the reader was unsure.
           await tryAutoFile(env, jobId, merged);
@@ -1202,10 +1421,12 @@ export default {
       } catch (err) {
         const detail = String(err instanceof Error ? err.message : err).slice(0, 400);
         await env.DB.prepare(
-          `UPDATE core_job_files SET ai_status='error', last_error=? WHERE job_file_id = ?`
+          `UPDATE core_job_files SET ai_status='error', last_error=?
+            WHERE job_file_id = ? AND ai_status='reading'`
         ).bind(detail, jobFileId).run();
         await env.DB.prepare(
-          `UPDATE core_jobs SET status='error', message=?, updated_at=datetime('now') WHERE job_id = ?`
+          `UPDATE core_jobs SET status='error', message=?, updated_at=datetime('now')
+            WHERE job_id = ? AND status IN ('queued','reading','error')`
         ).bind(detail, jobId).run();
 
         // Retry transient failures; give up on ones a retry cannot fix.
@@ -1218,6 +1439,7 @@ export default {
   /** Nightly: push the readable copy into your Google Sheet, expire old shares. */
   async scheduled(_event: ScheduledController, env: Env) {
     try {
+      await maintainUploadJobs(env);
       const { created } = await refreshReminders(env);
       await env.DB.prepare(
         `INSERT INTO core_audit_log (action, detail) VALUES ('reminders_refreshed', ?)`

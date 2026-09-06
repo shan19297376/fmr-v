@@ -96,30 +96,44 @@ async function doUpload() {
     date: $('upDate').value,
     careEventId: (ep !== 'auto' && ep !== 'none' && ep !== '__new') ? ep : undefined,
     autoEpisode: ep === 'auto',
+    expectedFiles: bulk ? 1 : files.length,
   };
 
   $('upGo').disabled = true;
   try {
-    // Bulk: one job per file, each read and filed on its own.
-    // Individual: one job holding every file, treated as a single document.
+    // Bulk: one job per file. Individual: every selected page is uploaded
+    // first and the job is submitted only after the complete set is present.
     let job = bulk ? null : await post('/api/core/uploads', base);
-    let skipped = 0;
+    let skipped = 0, sent = 0;
 
     for (let i = 0; i < files.length; i++) {
       setStatus('upStatus', 'Sending ' + (i+1) + ' of ' + files.length + '\u2026');
-      if (bulk) job = await post('/api/core/uploads', Object.assign({}, base, { batchId }));
+      if (bulk) job = await post('/api/core/uploads', Object.assign({}, base, {
+        batchId, expectedFiles: 1,
+      }));
 
       const form = new FormData(); form.append('file', files[i]);
       const res = await fetch('/api/core/uploads/' + job.jobId + '/file',
         { method:'POST', credentials:'same-origin', body: form });
       const body = await res.json();
-      if (res.status === 409 && body.duplicate) { skipped++; continue; }
+      if (res.status === 409 && body.duplicate) {
+        skipped++;
+        if (bulk) await post('/api/core/uploads/' + job.jobId + '/reject', {});
+        continue;
+      }
       if (!res.ok) throw new Error(body.error || (files[i].name + ' could not be sent.'));
+      sent++;
+      if (bulk) await post('/api/core/uploads/' + job.jobId + '/submit', { expectedFiles: 1 });
+    }
+
+    if (!bulk) {
+      if (sent) await post('/api/core/uploads/' + job.jobId + '/submit', { expectedFiles: sent });
+      else await post('/api/core/uploads/' + job.jobId + '/reject', {});
     }
 
     $('upFiles').value = '';
     setStatus('upStatus',
-      (files.length - skipped) + (bulk ? ' document(s)' : ' page(s)') + ' sent.' +
+      sent + (bulk ? ' document(s)' : ' page(s)') + ' sent.' +
       (skipped ? ' ' + skipped + ' already filed, skipped.' : '') +
       ' Reading now \u2014 you can close the app.', 'ok');
     clearCache();
@@ -359,7 +373,11 @@ async function fileIt(job) {
     if (manual) {
       await post('/api/core/uploads/' + jobId + '/manual', payload);
     } else {
-      if (who !== job.person_id) await post('/api/core/uploads/' + jobId + '/person', { person: who });
+      await post('/api/core/uploads/' + jobId + '/person', {
+        person: who,
+        careEventId: (ep !== 'auto' && ep !== 'none') ? ep : null,
+        autoEpisode: ep === 'auto',
+      });
       await post('/api/core/uploads/' + jobId + '/approve', Object.assign({}, data, {
         event_date: payload.date, record_type: payload.record_type, summary: payload.summary }));
     }

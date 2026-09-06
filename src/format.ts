@@ -37,7 +37,17 @@ export function parseDate(text: string | null | undefined): string {
   return '';
 }
 
-export function today(): string {
+const DEFAULT_TIME_ZONE = 'Asia/Kolkata';
+
+/** Calendar date in the configured family timezone (India by default). */
+export function today(timeZone = DEFAULT_TIME_ZONE): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date());
+    const value = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    if (value.year && value.month && value.day) return `${value.year}-${value.month}-${value.day}`;
+  } catch { /* an invalid timezone must not stop the app */ }
   return new Date().toISOString().slice(0, 10);
 }
 
